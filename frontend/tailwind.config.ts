@@ -11,28 +11,27 @@ const config: Config = {
     extend: {
       colors: {
         industrial: {
-          950: "#0b0f19",
-          900: "#0f172a",
-          850: "#131d36",
-          800: "#1e293b",
-          700: "#334155",
-          600: "#475569",
-          500: "#64748b",
-          400: "#94a3b8",
-          300: "#cbd5e1",
-          200: "#e2e8f0",
-          100: "#f1f5f9",
-          50: "#f8fafc",
+          bg: "#F8FAFC",
+          panel: "#FFFFFF",
+          border: "#E2E8F0",
+          borderHover: "#CBD5E1",
+          text: "#0F172A",
+          muted: "#64748B",
+          subtle: "#94A3B8",
+          darkBg: "#0B0F19",
+          darkPanel: "#131D31",
+          darkBorder: "#1E293B",
         },
-        telemetry: {
-          good: "#10b981",       // Zone A
-          acceptable: "#06b6d4", // Zone B
-          warning: "#f59e0b",    // Zone C
-          critical: "#ef4444",   // Zone D
+        status: {
+          nominal: "#10B981",    // Emerald
+          warning: "#F59E0B",    // Amber
+          critical: "#EF4444",   // Rose/Crimson
+          active: "#0D9488",     // Steel Teal
         },
       },
       fontFamily: {
-        mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "Liberation Mono", "Courier New", "monospace"],
+        sans: ["-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", "sans-serif"],
+        mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "Liberation Mono", "monospace"],
       },
     },
   },

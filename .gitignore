@@ -82,6 +82,7 @@ next-env.d.ts
 # Turbopack & Cache
 .turbo/
 .cache/
+*.tsbuildinfo
 
 # IDE & Editors
 .idea/
