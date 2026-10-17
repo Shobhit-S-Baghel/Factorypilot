@@ -15,6 +15,8 @@ from app.schemas.diagnostic_schemas import (
     FieldInspectionStep,
     CorrectiveAction,
     TroubleshootResponse,
+    MaintenanceTicketExportRequest,
+    MaintenanceTicketResponse,
 )
 
 __all__ = [
@@ -30,4 +32,6 @@ __all__ = [
     "FieldInspectionStep",
     "CorrectiveAction",
     "TroubleshootResponse",
+    "MaintenanceTicketExportRequest",
+    "MaintenanceTicketResponse",
 ]

@@ -114,3 +114,43 @@ async def get_current_telemetry():
             "alerts": [],
         },
     ]
+
+
+@router.get("/scenarios", summary="List available industrial failure simulation scenarios")
+async def list_scenarios():
+    """List deterministic industrial failure scenarios."""
+    from app.services.data_generator import scenario_generator
+    return {"scenarios": scenario_generator.get_available_scenarios()}
+
+
+@router.get("/scenarios/{scenario_id}/export", summary="Export synthetic failure scenario as CSV")
+async def export_scenario_csv(
+    scenario_id: str,
+    n_steps: int = 60,
+    interval_seconds: int = 5,
+):
+    """Export synthetic failure scenario as a downloadable CSV stream."""
+    from fastapi.responses import Response
+    from app.services.data_generator import scenario_generator
+
+    try:
+        csv_data = scenario_generator.generate_scenario_csv(
+            scenario_id=scenario_id,
+            n_steps=max(5, min(1000, n_steps)),
+            interval_seconds=max(1, min(60, interval_seconds)),
+        )
+        filename = f"{scenario_id}_simulation.csv"
+        return Response(
+            content=csv_data,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Type": "text/csv; charset=utf-8",
+            },
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+

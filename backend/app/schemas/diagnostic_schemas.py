@@ -52,3 +52,29 @@ class TroubleshootResponse(BaseModel):
     recommended_corrective_actions: List[CorrectiveAction]
     retrieved_manual_citations: List[Dict[str, Any]]
     confidence_score: float = Field(..., ge=0.0, le=1.0)
+
+
+class MaintenanceTicketExportRequest(BaseModel):
+    machine_id: str
+    issue_title: str = "Unscheduled Corrective Maintenance"
+    technician_name: str = "Field Reliability Technician"
+    format: str = Field(default="markdown", description="'markdown' or 'json'")
+    anomaly_flags: List[str] = Field(default_factory=list)
+    sensor_snapshot: Dict[str, Any] = Field(default_factory=dict)
+    technician_checklist: List[Dict[str, Any]] = Field(default_factory=list)
+    manual_citations: List[Dict[str, Any]] = Field(default_factory=list)
+    corrective_actions: List[Dict[str, Any]] = Field(default_factory=list)
+    loto_required: bool = True
+    work_order_notes: Optional[str] = None
+
+
+class MaintenanceTicketResponse(BaseModel):
+    ticket_id: str
+    machine_id: str
+    created_at: datetime
+    technician_name: str
+    status: str = "OPEN"
+    iso_10816_status: str
+    loto_compliance_certified: bool
+    markdown_content: str
+    raw_payload: Dict[str, Any]
