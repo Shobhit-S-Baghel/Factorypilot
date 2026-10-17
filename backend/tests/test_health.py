@@ -18,4 +18,5 @@ async def test_api_v1_health(client: AsyncClient):
     data = response.json()
     assert data["status"] == "healthy"
     assert "services" in data
-    assert "api" in data["services"]
+    assert "rag_engine" in data["services"]
+    assert "ml_anomaly_engine" in data["services"]

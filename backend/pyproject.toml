@@ -24,6 +24,11 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::pytest.PytestRemovedIn9Warning",
+]
 
 [tool.ruff]
 line-length = 88

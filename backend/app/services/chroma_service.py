@@ -1,7 +1,13 @@
 import logging
 from typing import List, Dict, Any, Optional
-import chromadb
-from chromadb.config import Settings as ChromaSettings
+try:
+    import chromadb
+    from chromadb.config import Settings as ChromaSettings
+    HAS_CHROMADB = True
+except ImportError:
+    chromadb = None  # type: ignore
+    ChromaSettings = None  # type: ignore
+    HAS_CHROMADB = False
 from app.core.config import settings
 from app.models.schemas import ManualSearchResult
 
@@ -10,12 +16,17 @@ logger = logging.getLogger(__name__)
 
 class ChromaService:
     def __init__(self) -> None:
-        self.client: Optional[chromadb.ClientAPI] = None
+        self.client: Any = None
         self.collection: Any = None
         self._is_connected: bool = False
 
     def connect(self) -> bool:
         """Attempt connection to ChromaDB server with graceful in-memory fallback."""
+        if not HAS_CHROMADB:
+            logger.info("ChromaDB library not locally installed. Running in standalone RAG engine mode.")
+            self._is_connected = False
+            return False
+
         try:
             logger.info(
                 f"Connecting to ChromaDB at host: {settings.CHROMA_HOST}, port: {settings.CHROMA_PORT}"

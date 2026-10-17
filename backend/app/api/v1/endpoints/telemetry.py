@@ -1,109 +1,116 @@
-from typing import List
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 import random
-from fastapi import APIRouter
-from app.models.schemas import TelemetryReading, MachineStatusSummary
+from fastapi import APIRouter, UploadFile, File, HTTPException, status
+from app.services.telemetry_service import telemetry_service, TelemetryProcessingError
+from app.services.ml_engine import ml_engine
+from app.schemas.sensor_schemas import TelemetryUploadResponse
+from app.schemas.anomaly_schemas import AnomalyDetectionResponse
 
 router = APIRouter()
 
 
-def compute_iso_10816_zone(vibration_rms: float) -> str:
-    """ISO 10816-3 Class II / III vibration evaluation criteria."""
-    if vibration_rms < 1.4:
-        return "Zone A (Good - New/Commissioned)"
-    elif vibration_rms < 2.8:
-        return "Zone B (Acceptable - Long Term)"
-    elif vibration_rms < 4.5:
-        return "Zone C (Warning - Restricted Operation)"
-    else:
-        return "Zone D (Critical - Damage Imminent)"
+@router.post(
+    "/upload",
+    response_model=TelemetryUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload and ingest industrial sensor telemetry CSV",
+)
+async def upload_telemetry_csv(file: UploadFile = File(...)) -> TelemetryUploadResponse:
+    """Ingest industrial machinery CSV, validate required channels, verify monotonicity,
+
+    and extract rolling 5-minute statistical window metrics (mean, std, peak-to-peak, crest factor).
+    """
+    if not file.filename.endswith(".csv"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file type. Telemetry file must be a CSV (.csv) file.",
+        )
+
+    try:
+        content = await file.read()
+        if len(content) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file is empty.",
+            )
+
+        response, _ = telemetry_service.process_csv_upload(content)
+        return response
+    except HTTPException:
+        raise
+    except TelemetryProcessingError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An unexpected error occurred during telemetry ingestion: {str(e)}",
+        )
 
 
-@router.get("/current", response_model=List[TelemetryReading])
-async def get_current_telemetry() -> List[TelemetryReading]:
-    now = datetime.utcnow()
+@router.post(
+    "/upload-and-analyze",
+    response_model=AnomalyDetectionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Upload telemetry CSV and immediately run ML anomaly detection",
+)
+async def upload_and_analyze_csv(file: UploadFile = File(...)) -> AnomalyDetectionResponse:
+    """Upload industrial CSV, extract rolling features, run Isolation Forest,
 
-    # Asset 1: Centrifugal Slurry Pump (PUMP-01)
-    pump_vib = round(random.uniform(1.2, 3.2), 2)
-    pump_temp = round(random.uniform(68.0, 84.5), 1)
-    pump_zone = compute_iso_10816_zone(pump_vib)
-    pump_alerts = []
-    pump_status = "NORMAL"
+    classify ISO 10816 zones, and compute the Equipment Health Index (EHI).
+    """
+    if not file.filename.endswith(".csv"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file format. Please upload a .csv file.",
+        )
 
-    if pump_temp > 80.0:
-        pump_alerts.append(f"Bearing Thermal Threshold Exceeded: {pump_temp}°C (>80°C warning)")
-        pump_status = "WARNING"
-    if "Zone C" in pump_zone or "Zone D" in pump_zone:
-        pump_alerts.append(f"Vibration Alert: {pump_vib} mm/s RMS [{pump_zone}]")
-        pump_status = "WARNING" if pump_status != "CRITICAL" else "CRITICAL"
-    if pump_temp > 95.0 or "Zone D" in pump_zone:
-        pump_status = "CRITICAL"
-
-    pump_reading = TelemetryReading(
-        machine_id="PUMP-01",
-        machine_name="Centrifugal Slurry Booster Pump P-101",
-        timestamp=now,
-        vibration_rms_mm_s=pump_vib,
-        bearing_temp_celsius=pump_temp,
-        rpm=1750.0 + random.uniform(-15.0, 15.0),
-        iso_10816_zone=pump_zone,
-        status=pump_status,
-        alerts=pump_alerts,
-    )
-
-    # Asset 2: High-Speed 5-Axis CNC Milling Spindle (CNC-SPINDLE-01)
-    spindle_vib = round(random.uniform(0.6, 2.1), 2)
-    spindle_temp = round(random.uniform(42.0, 65.0), 1)
-    spindle_current = round(random.uniform(12.5, 21.0), 1)
-    spindle_coolant = round(random.uniform(22.0, 35.0), 1)
-    spindle_zone = compute_iso_10816_zone(spindle_vib)
-    spindle_alerts = []
-    spindle_status = "NORMAL"
-
-    if spindle_current > 18.5:
-        spindle_alerts.append(f"Electrical Current Spike: {spindle_current}A (>18.5A FLA limit)")
-        spindle_status = "WARNING"
-    if spindle_coolant < 20.0:
-        spindle_alerts.append(f"Low Thru-Spindle Coolant Flow: {spindle_coolant} L/min (<20.0 L/min)")
-        spindle_status = "WARNING"
-
-    spindle_reading = TelemetryReading(
-        machine_id="CNC-SPINDLE-01",
-        machine_name="DMG Mori 5-Axis Spindle SP-300",
-        timestamp=now,
-        vibration_rms_mm_s=spindle_vib,
-        bearing_temp_celsius=spindle_temp,
-        rpm=24000.0 + random.uniform(-100.0, 100.0),
-        current_draw_amps=spindle_current,
-        coolant_flow_l_min=spindle_coolant,
-        iso_10816_zone=spindle_zone,
-        status=spindle_status,
-        alerts=spindle_alerts,
-    )
-
-    return [pump_reading, spindle_reading]
+    try:
+        content = await file.read()
+        _, features_df = telemetry_service.process_csv_upload(content)
+        analysis_result = ml_engine.detect_anomalies(features_df)
+        return analysis_result
+    except HTTPException:
+        raise
+    except TelemetryProcessingError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to analyze telemetry: {str(e)}",
+        )
 
 
-@router.get("/machinery", response_model=List[MachineStatusSummary])
-async def get_machinery_overview() -> List[MachineStatusSummary]:
-    telemetries = await get_current_telemetry()
+@router.get("/current")
+async def get_current_telemetry():
+    """Live mock stream for dashboard visualization."""
+    now = datetime.utcnow().isoformat()
     return [
-        MachineStatusSummary(
-            machine_id="PUMP-01",
-            name="Centrifugal Slurry Booster Pump P-101",
-            category="Hydraulic Transfer & Pumping",
-            location="Building B - Slurry Bay 3",
-            operational_status="ONLINE",
-            last_reading=telemetries[0],
-            loto_engaged=False,
-        ),
-        MachineStatusSummary(
-            machine_id="CNC-SPINDLE-01",
-            name="DMG Mori 5-Axis Spindle SP-300",
-            category="Precision Machining",
-            location="Building A - CNC Cell 12",
-            operational_status="ONLINE",
-            last_reading=telemetries[1],
-            loto_engaged=False,
-        ),
+        {
+            "machine_id": "PUMP-01",
+            "machine_name": "Centrifugal Slurry Booster Pump P-101",
+            "timestamp": now,
+            "vibration_rms_mm_s": round(random.uniform(1.2, 3.2), 2),
+            "bearing_temp_celsius": round(random.uniform(68.0, 84.5), 1),
+            "rpm": 1750.0 + random.uniform(-15.0, 15.0),
+            "current_draw_amps": round(random.uniform(115.0, 130.0), 1),
+            "acoustic_db": round(random.uniform(72.0, 86.0), 1),
+            "iso_10816_zone": "Zone B (Acceptable - Long Term)",
+            "status": "NORMAL",
+            "alerts": [],
+        },
+        {
+            "machine_id": "CNC-SPINDLE-01",
+            "machine_name": "DMG Mori 5-Axis Spindle SP-300",
+            "timestamp": now,
+            "vibration_rms_mm_s": round(random.uniform(0.6, 2.1), 2),
+            "bearing_temp_celsius": round(random.uniform(42.0, 65.0), 1),
+            "rpm": 24000.0 + random.uniform(-100.0, 100.0),
+            "current_draw_amps": round(random.uniform(12.5, 21.0), 1),
+            "coolant_flow_l_min": round(random.uniform(22.0, 35.0), 1),
+            "acoustic_db": round(random.uniform(65.0, 78.0), 1),
+            "iso_10816_zone": "Zone A (Good - Commissioned)",
+            "status": "NORMAL",
+            "alerts": [],
+        },
     ]
