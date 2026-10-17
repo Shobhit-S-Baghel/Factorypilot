@@ -189,6 +189,7 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({
                   strokeWidth={2.2}
                   dot={{ r: 2 }}
                   activeDot={{ r: 5 }}
+                  isAnimationActive={false}
                 />
               )}
 
@@ -201,6 +202,7 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({
                   strokeWidth={2.2}
                   dot={{ r: 2 }}
                   activeDot={{ r: 5 }}
+                  isAnimationActive={false}
                 />
               )}
 
@@ -213,6 +215,7 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({
                   strokeWidth={2.0}
                   dot={{ r: 2 }}
                   activeDot={{ r: 5 }}
+                  isAnimationActive={false}
                 />
               )}
 
@@ -224,6 +227,7 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({
                   stroke="#64748B"
                   strokeWidth={1.8}
                   dot={false}
+                  isAnimationActive={false}
                 />
               )}
             </ComposedChart>

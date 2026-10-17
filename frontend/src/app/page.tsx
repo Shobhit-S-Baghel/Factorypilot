@@ -1,12 +1,16 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Header } from "@/components/Header";
 import { MetricCard } from "@/components/MetricCard";
 import { TelemetryChart, TelemetryPoint, SensorContributionData } from "@/components/TelemetryChart";
 import { AnomalyTable, AnomalyRecord } from "@/components/AnomalyTable";
 import { DiagnosticChat } from "@/components/DiagnosticChat";
 import { CsvUploader } from "@/components/CsvUploader";
+import { StreamControls, SCENARIO_OPTIONS } from "@/components/StreamControls";
+import { VibrationGauge, ThermalGauge, AcousticGauge, EmergencyBanner } from "@/components/Gauges";
+import { TicketModal } from "@/components/TicketModal";
+import { useTelemetryStream, SpeedMultiplier } from "@/hooks/useTelemetryStream";
 import {
   Activity,
   AlertTriangle,
@@ -19,6 +23,9 @@ import {
   ShieldAlert,
   ArrowUpRight,
   RefreshCw,
+  FileText,
+  Sliders,
+  Sparkles,
 } from "lucide-react";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -39,14 +46,15 @@ export default function DashboardPage() {
   const [selectedMachineId, setSelectedMachineId] = useState<string>("PUMP-01");
   const [backendStatus, setBackendStatus] = useState<string>("connecting");
   const [isIngesting, setIsIngesting] = useState<boolean>(false);
+  const [isTicketModalOpen, setIsTicketModalOpen] = useState<boolean>(false);
 
-  // Machine state summary
+  // Fallback initial machine state
   const [equipmentHealthIndex, setEquipmentHealthIndex] = useState<number>(54.0);
   const [operationalState, setOperationalState] = useState<string>("Degraded");
   const [isoZone, setIsoZone] = useState<string>("Zone C (Warning - 4.4 mm/s)");
   const [estimatedTimeToMaintenance, setEstimatedTimeToMaintenance] = useState<string>("~48 Hours (Action Required)");
 
-  // Metrics
+  // Fallback metrics
   const [currentVibration, setCurrentVibration] = useState<number>(4.4);
   const [currentBearingTemp, setCurrentBearingTemp] = useState<number>(80.3);
   const [currentRpm, setCurrentRpm] = useState<number>(1737.0);
@@ -54,19 +62,8 @@ export default function DashboardPage() {
   const [currentAcousticDb, setCurrentAcousticDb] = useState<number>(90.5);
 
   // Time-series points and anomalies
-  const [telemetryPoints, setTelemetryPoints] = useState<TelemetryPoint[]>(INITIAL_TELEMETRY_POINTS);
-  const [anomalyRanges, setAnomalyRanges] = useState<{ start: string; end: string; severity: "warning" | "critical" }[]>([
-    { start: "14:02", end: "14:04:30", severity: "critical" },
-  ]);
-
-  const [sensorContributions, setSensorContributions] = useState<SensorContributionData[]>([
-    { sensor_channel: "vibration_rms_mms", contribution_score: 0.58, current_value: 5.4, unit: "mm/s" },
-    { sensor_channel: "acoustic_db", contribution_score: 0.24, current_value: 95.2, unit: "dB" },
-    { sensor_channel: "bearing_temperature_c", contribution_score: 0.12, current_value: 80.3, unit: "°C" },
-    { sensor_channel: "current_draw_amps", contribution_score: 0.06, current_value: 135.0, unit: "Amps" },
-  ]);
-
-  const [anomalyTimeline, setAnomalyTimeline] = useState<AnomalyRecord[]>([
+  const [staticPoints, setStaticPoints] = useState<TelemetryPoint[]>(INITIAL_TELEMETRY_POINTS);
+  const [staticAnomalies, setStaticAnomalies] = useState<AnomalyRecord[]>([
     {
       timestamp: "2026-10-18T14:03:00Z",
       machine_id: "PUMP-01",
@@ -102,7 +99,22 @@ export default function DashboardPage() {
     },
   ]);
 
-  // Check backend health
+  const [sensorContributions, setSensorContributions] = useState<SensorContributionData[]>([
+    { sensor_channel: "vibration_rms_mms", contribution_score: 0.58, current_value: 5.4, unit: "mm/s" },
+    { sensor_channel: "acoustic_db", contribution_score: 0.24, current_value: 95.2, unit: "dB" },
+    { sensor_channel: "bearing_temperature_c", contribution_score: 0.12, current_value: 80.3, unit: "°C" },
+    { sensor_channel: "current_draw_amps", contribution_score: 0.06, current_value: 135.0, unit: "Amps" },
+  ]);
+
+  // Hook into live WebSocket telemetry stream
+  const stream = useTelemetryStream({
+    defaultScenario: "centrifugal_pump_cavitation",
+    defaultSpeed: 1,
+    bufferSize: 60,
+    autoStart: true,
+  });
+
+  // Check backend health periodically
   const checkHealth = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/health`, { signal: AbortSignal.timeout(2500) });
@@ -119,16 +131,145 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, [checkHealth]);
 
-  // Handle uploaded analysis response
+  // When live telemetry frame arrives from WebSocket, sync local dashboard state
+  useEffect(() => {
+    if (stream.latestFrame) {
+      const frame = stream.latestFrame;
+
+      if (frame.machine_id) {
+        setSelectedMachineId(frame.machine_id);
+      }
+
+      const vib = frame.vibration_rms_mms;
+      const temp = frame.bearing_temperature_c;
+      const rpm = frame.rotational_speed_rpm;
+      const amps = frame.current_draw_amps;
+      const acoustic = frame.acoustic_db;
+
+      setCurrentVibration(vib);
+      setCurrentBearingTemp(temp);
+      setCurrentRpm(rpm);
+      setCurrentAmps(amps);
+      setCurrentAcousticDb(acoustic);
+
+      if (frame.iso_10816_zone) {
+        setIsoZone(frame.iso_10816_zone);
+      }
+
+      // Compute operational state
+      const isCritical =
+        vib > 7.1 ||
+        temp > 95.0 ||
+        frame.iso_10816_zone?.includes("Zone D") ||
+        (frame.is_anomaly && frame.risk_score >= 85);
+
+      const isDegraded =
+        !isCritical &&
+        (vib >= 2.8 ||
+          temp >= 80.0 ||
+          acoustic > 85.0 ||
+          frame.iso_10816_zone?.includes("Zone C") ||
+          frame.is_anomaly);
+
+      if (isCritical) {
+        setOperationalState("Critical");
+        setEstimatedTimeToMaintenance("IMMEDIATE (< 2 Hours)");
+        setEquipmentHealthIndex(Math.max(12, Math.round(100 - (frame.risk_score || 85))));
+      } else if (isDegraded) {
+        setOperationalState("Degraded");
+        setEstimatedTimeToMaintenance("~48-72 Hours (Scheduled)");
+        setEquipmentHealthIndex(Math.max(45, Math.round(100 - (frame.risk_score || 45))));
+      } else {
+        setOperationalState("Nominal");
+        setEstimatedTimeToMaintenance("> 1,000 Hours (Nominal)");
+        setEquipmentHealthIndex(Math.max(88, Math.round(100 - (frame.risk_score || 8))));
+      }
+
+      // Dynamic sensor contribution ranking update
+      const totalScore = (vib / 7.1) + (temp / 80) + (acoustic / 85) + (amps / 120);
+      setSensorContributions([
+        {
+          sensor_channel: "vibration_rms_mms",
+          contribution_score: Number(((vib / 7.1) / totalScore).toFixed(2)),
+          current_value: Number(vib.toFixed(2)),
+          unit: "mm/s",
+        },
+        {
+          sensor_channel: "bearing_temperature_c",
+          contribution_score: Number(((temp / 80) / totalScore).toFixed(2)),
+          current_value: Number(temp.toFixed(1)),
+          unit: "°C",
+        },
+        {
+          sensor_channel: "acoustic_db",
+          contribution_score: Number(((acoustic / 85) / totalScore).toFixed(2)),
+          current_value: Number(acoustic.toFixed(1)),
+          unit: "dB",
+        },
+        {
+          sensor_channel: "current_draw_amps",
+          contribution_score: Number(((amps / 120) / totalScore).toFixed(2)),
+          current_value: Number(amps.toFixed(1)),
+          unit: "Amps",
+        },
+      ]);
+    }
+  }, [stream.latestFrame]);
+
+  // Determine active telemetry points (rolling 60 points if streaming, else fallback)
+  const activeTelemetryPoints = useMemo(() => {
+    if (stream.telemetryBuffer && stream.telemetryBuffer.length > 0) {
+      return stream.telemetryBuffer;
+    }
+    return staticPoints;
+  }, [stream.telemetryBuffer, staticPoints]);
+
+  // Determine active anomaly records
+  const activeAnomalyRecords = useMemo(() => {
+    if (stream.anomalyTimeline && stream.anomalyTimeline.length > 0) {
+      return stream.anomalyTimeline;
+    }
+    return staticAnomalies;
+  }, [stream.anomalyTimeline, staticAnomalies]);
+
+  // Compute shaded anomaly ranges for Recharts
+  const anomalyRanges = useMemo(() => {
+    const anomPoints = activeTelemetryPoints.filter((p) => p.is_anomaly);
+    if (anomPoints.length > 0) {
+      return [
+        {
+          start: anomPoints[0].time,
+          end: anomPoints[anomPoints.length - 1].time,
+          severity: (operationalState === "Critical" ? "critical" : "warning") as "critical" | "warning",
+        },
+      ];
+    }
+    return [];
+  }, [activeTelemetryPoints, operationalState]);
+
+  // Determine primary offending sensor for emergency alert
+  const primaryOffendingSensorInfo = useMemo(() => {
+    if (currentVibration > 7.1) {
+      return { channel: "vibration_rms_mms", value: currentVibration.toFixed(2), unit: "mm/s" };
+    }
+    if (currentBearingTemp > 80.0) {
+      return { channel: "bearing_temperature_c", value: currentBearingTemp.toFixed(1), unit: "°C" };
+    }
+    if (currentAcousticDb > 85.0) {
+      return { channel: "acoustic_db", value: currentAcousticDb.toFixed(1), unit: "dB" };
+    }
+    if (currentVibration >= 2.8) {
+      return { channel: "vibration_rms_mms", value: currentVibration.toFixed(2), unit: "mm/s" };
+    }
+    return { channel: "vibration_rms_mms", value: currentVibration.toFixed(2), unit: "mm/s" };
+  }, [currentVibration, currentBearingTemp, currentAcousticDb]);
+
+  // Handle uploaded CSV analysis response
   const handleAnalysisComplete = (result: any) => {
     if (!result) return;
 
-    if (result.machine_id) {
-      setSelectedMachineId(result.machine_id);
-    }
-    if (result.equipment_health_index !== undefined) {
-      setEquipmentHealthIndex(result.equipment_health_index);
-    }
+    if (result.machine_id) setSelectedMachineId(result.machine_id);
+    if (result.equipment_health_index !== undefined) setEquipmentHealthIndex(result.equipment_health_index);
     if (result.overall_state) {
       setOperationalState(result.overall_state);
       if (result.overall_state === "Critical") {
@@ -139,11 +280,8 @@ export default function DashboardPage() {
         setEstimatedTimeToMaintenance("> 1,000 Hours (Nominal)");
       }
     }
-    if (result.iso_10816_zone) {
-      setIsoZone(result.iso_10816_zone);
-    }
+    if (result.iso_10816_zone) setIsoZone(result.iso_10816_zone);
 
-    // Update sensor contribution breakdown
     if (result.sensor_contribution_rankings && Array.isArray(result.sensor_contribution_rankings)) {
       setSensorContributions(
         result.sensor_contribution_rankings.map((c: any) => ({
@@ -155,7 +293,6 @@ export default function DashboardPage() {
       );
     }
 
-    // Convert anomaly timeline into chart points
     if (result.anomaly_timeline && Array.isArray(result.anomaly_timeline) && result.anomaly_timeline.length > 0) {
       const points: TelemetryPoint[] = result.anomaly_timeline.map((item: any) => {
         const d = new Date(item.timestamp);
@@ -172,23 +309,8 @@ export default function DashboardPage() {
           anomaly_score: item.anomaly_score,
         };
       });
-      setTelemetryPoints(points);
-
-      // Extract anomaly ranges for shaded areas
-      const anomPoints = points.filter((p) => p.is_anomaly);
-      if (anomPoints.length > 0) {
-        setAnomalyRanges([
-          {
-            start: anomPoints[0].time,
-            end: anomPoints[anomPoints.length - 1].time,
-            severity: result.overall_state === "Critical" ? "critical" : "warning",
-          },
-        ]);
-      } else {
-        setAnomalyRanges([]);
-      }
-
-      setAnomalyTimeline(result.anomaly_timeline);
+      setStaticPoints(points);
+      setStaticAnomalies(result.anomaly_timeline);
     }
   };
 
@@ -200,17 +322,62 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900 selection:bg-teal-500 selection:text-white">
-      {/* 1. Header */}
+      {/* 1. Sticky Header */}
       <Header
         selectedMachineId={selectedMachineId}
-        onSelectMachine={setSelectedMachineId}
-        backendStatus={backendStatus}
+        onSelectMachine={(id) => {
+          setSelectedMachineId(id);
+          // Auto-select corresponding scenario
+          if (id === "CNC-SPINDLE-01") {
+            stream.setScenario("cnc_spindle_bearing_wear");
+          } else {
+            stream.setScenario("centrifugal_pump_cavitation");
+          }
+        }}
+        backendStatus={stream.connectionState === "Live" ? "healthy" : backendStatus}
         equipmentHealth={equipmentHealthIndex}
         operationalState={operationalState}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        {/* 2. Top-Level Machine Operational Status Banner */}
+        {/* 2. Emergency Alert Ribbon with Audible/Visual Pulse (Triggers on Critical) */}
+        <EmergencyBanner
+          isCritical={operationalState === "Critical"}
+          machineId={selectedMachineId}
+          primaryOffendingSensor={primaryOffendingSensorInfo.channel}
+          offendingValue={primaryOffendingSensorInfo.value}
+          offendingUnit={primaryOffendingSensorInfo.unit}
+          alerts={stream.alerts}
+          onOpenWorkOrder={() => setIsTicketModalOpen(true)}
+        />
+
+        {/* 3. Real-Time Telemetry Playback Engine & Stream Controls Toolbar */}
+        <section>
+          <StreamControls
+            connectionState={stream.connectionState}
+            isPlaying={stream.isPlaying}
+            selectedScenario={stream.scenario}
+            speedMultiplier={stream.speedMultiplier}
+            currentTick={stream.currentTick}
+            totalTicks={stream.totalTicks}
+            onPlay={() => {
+              if (stream.isPlaying) stream.pause();
+              else stream.resume();
+            }}
+            onPause={stream.pause}
+            onReset={stream.reset}
+            onSelectScenario={(scenId) => {
+              stream.setScenario(scenId);
+              const opt = SCENARIO_OPTIONS.find((s) => s.id === scenId);
+              if (opt) setSelectedMachineId(opt.machineId);
+            }}
+            onSelectSpeed={(spd) => stream.setSpeed(spd)}
+            onSeek={stream.seek}
+            onReconnect={stream.reconnect}
+          />
+        </section>
+
+        {/* 4. Top-Level Machine Operational Status Banner */}
         <section className="industrial-card p-6 bg-white border border-slate-200 shadow-sm">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
             <div className="flex items-start space-x-5">
@@ -289,42 +456,65 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Emergency / Safety Tag */}
-            <div className="flex flex-col sm:flex-row lg:flex-col items-start lg:items-end justify-between border-t lg:border-t-0 lg:border-l border-slate-100 pt-3 lg:pt-0 lg:pl-6 text-xs gap-2 shrink-0">
+            {/* Emergency / Safety Tag & Export Work Order Trigger */}
+            <div className="flex flex-col sm:flex-row lg:flex-col items-start lg:items-end justify-between border-t lg:border-t-0 lg:border-l border-slate-100 pt-3 lg:pt-0 lg:pl-6 text-xs gap-3 shrink-0">
+              <button
+                onClick={() => setIsTicketModalOpen(true)}
+                className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-semibold shadow-sm transition-all active:scale-95"
+              >
+                <FileText className="w-4 h-4 text-amber-400" />
+                <span>Export Work Order</span>
+              </button>
+
               <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-700">
                 <ShieldAlert className="w-4 h-4 text-amber-500" />
                 <span className="font-medium">Safety Standard: OSHA 29 CFR 1910.147</span>
               </div>
-              <span className="text-[11px] font-mono text-slate-400">Telemetry Engine: v0.2.0 • Online</span>
             </div>
           </div>
         </section>
 
-        {/* 3. Ingestion Panel & Dataset Selector */}
-        <section>
-          <CsvUploader
-            apiBaseUrl={API_BASE_URL}
-            onAnalysisComplete={handleAnalysisComplete}
-            isLoading={isIngesting}
-            setIsLoading={setIsIngesting}
-          />
+        {/* 5. Plant Floor Status Gauges (Vibration Severity, Thermal Monitor, Acoustic Monitor) */}
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Gauge className="w-4 h-4 text-teal-600" />
+              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">
+                Plant Floor Precision Condition Gauges
+              </h2>
+            </div>
+            <span className="text-xs font-mono text-slate-400">
+              Real-Time Sample Rate: {stream.speedMultiplier === 5 ? "50ms" : stream.speedMultiplier === 2 ? "125ms" : "250ms"}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* 1. Vibration Severity Gauge (Calibrated against ISO 10816-3) */}
+            <VibrationGauge value={currentVibration} maxScale={12.0} />
+
+            {/* 2. Bearing Thermal Monitor (Color shifts approaching/exceeding 80°C) */}
+            <ThermalGauge value={currentBearingTemp} threshold={80.0} maxScale={120.0} />
+
+            {/* 3. Acoustic Sensor Monitor (Decibel surges & ultrasonic cavitation) */}
+            <AcousticGauge value={currentAcousticDb} cavitationThreshold={85.0} maxScale={110.0} />
+          </div>
         </section>
 
-        {/* 4. Metric Cards Row */}
+        {/* 6. Metric Cards Row */}
         <section className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <MetricCard
             label="Vibration RMS"
-            value={currentVibration}
+            value={Number(currentVibration.toFixed(2))}
             unit="mm/s"
             subtext="ISO 10816 velocity"
-            badge={currentVibration >= 4.5 ? "Zone D (Trip)" : currentVibration >= 2.8 ? "Zone C (Alert)" : "Zone B"}
-            status={currentVibration >= 4.5 ? "critical" : currentVibration >= 2.8 ? "warning" : "nominal"}
+            badge={currentVibration >= 7.1 ? "Zone D (Trip)" : currentVibration >= 2.8 ? "Zone C (Alert)" : "Zone A/B"}
+            status={currentVibration >= 7.1 ? "critical" : currentVibration >= 2.8 ? "warning" : "nominal"}
             iconName="gauge"
           />
 
           <MetricCard
             label="Bearing Housing"
-            value={currentBearingTemp}
+            value={Number(currentBearingTemp.toFixed(1))}
             unit="°C"
             subtext="80°C threshold limit"
             badge={currentBearingTemp >= 95 ? "Critical Trip" : currentBearingTemp >= 80 ? "Warning (>80°C)" : "Normal"}
@@ -344,7 +534,7 @@ export default function DashboardPage() {
 
           <MetricCard
             label="Current Draw"
-            value={currentAmps}
+            value={Number(currentAmps.toFixed(1))}
             unit="Amps"
             subtext="FLA overload trip @ 125%"
             badge={currentAmps > 18.5 && selectedMachineId.includes("CNC") ? "Overload" : "In Envelope"}
@@ -354,7 +544,7 @@ export default function DashboardPage() {
 
           <MetricCard
             label="Acoustic Intensity"
-            value={currentAcousticDb}
+            value={Number(currentAcousticDb.toFixed(1))}
             unit="dB"
             subtext="Cavitation pinging alarm"
             badge={currentAcousticDb > 85 ? "Cavitation Alert" : "Normal"}
@@ -363,21 +553,30 @@ export default function DashboardPage() {
           />
         </section>
 
-        {/* 5. Synchronized Multi-Metric Time-Series & AI Copilot Split */}
+        {/* 7. Ingestion Panel & Dataset Selector */}
+        <section>
+          <CsvUploader
+            apiBaseUrl={API_BASE_URL}
+            onAnalysisComplete={handleAnalysisComplete}
+            isLoading={isIngesting}
+            setIsLoading={setIsIngesting}
+          />
+        </section>
+
+        {/* 8. Synchronized Multi-Metric Time-Series & AI Copilot Split */}
         <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Left Column: Charts & Anomaly Log (7 cols) */}
           <div className="lg:col-span-7 space-y-6">
             <TelemetryChart
-              data={telemetryPoints}
+              data={activeTelemetryPoints}
               anomalyRanges={anomalyRanges}
               sensorContributions={sensorContributions}
               machineId={selectedMachineId}
             />
 
             <AnomalyTable
-              anomalies={anomalyTimeline}
+              anomalies={activeAnomalyRecords}
               onSelectAnomaly={(anom) => {
-                // Focus diagnostic on this anomaly
                 console.log("Selected anomaly to diagnose:", anom);
               }}
             />
@@ -399,6 +598,26 @@ export default function DashboardPage() {
           </div>
         </section>
       </main>
+
+      {/* 9. Maintenance Work Order Export Action Modal */}
+      <TicketModal
+        isOpen={isTicketModalOpen}
+        onClose={() => setIsTicketModalOpen(false)}
+        machineId={selectedMachineId}
+        operationalState={operationalState}
+        sensorSnapshot={{
+          vibration_rms_mms: currentVibration,
+          bearing_temperature_c: currentBearingTemp,
+          rotational_speed_rpm: currentRpm,
+          current_draw_amps: currentAmps,
+          acoustic_db: currentAcousticDb,
+        }}
+        alerts={stream.alerts}
+        timestamp={stream.latestFrame?.timestamp}
+        isoZone={isoZone}
+        primaryContributor={primaryOffendingSensorInfo.channel}
+        apiBaseUrl={API_BASE_URL}
+      />
 
       {/* Footer */}
       <footer className="border-t border-slate-200 bg-white py-6 mt-8">
