@@ -1,0 +1,108 @@
+version: "3.8"
+
+services:
+  # ==========================================
+  # ChromaDB Vector Store Service
+  # ==========================================
+  chromadb:
+    image: chromadb/chroma:0.4.24
+    container_name: factorypilot-chromadb
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma
+      - ANONYMIZED_TELEMETRY=FALSE
+    volumes:
+      - chroma_data:/chroma/chroma
+    networks:
+      - factorypilot-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v1/heartbeat || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ==========================================
+  # FastAPI Backend Service
+  # ==========================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runner
+    container_name: factorypilot-backend
+    restart: unless-stopped
+    user: "10001:10001"
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - BACKEND_HOST=0.0.0.0
+      - BACKEND_PORT=8000
+      - BACKEND_CORS_ORIGINS=["http://localhost:3000","http://frontend:3000"]
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - CHROMA_COLLECTION_NAME=factory_manuals
+    depends_on:
+      chromadb:
+        condition: service_healthy
+    volumes:
+      - backend_data:/app/data
+    networks:
+      - factorypilot-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ==========================================
+  # Next.js Frontend Service
+  # ==========================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: runner
+    container_name: factorypilot-frontend
+    restart: unless-stopped
+    user: "1001:1001"
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_APP_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - factorypilot-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', (res) => { if (res.statusCode !== 200) process.exit(1); });"]
+      interval: 25s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+# ==========================================
+# Persistent Volumes & Networks
+# ==========================================
+volumes:
+  chroma_data:
+    driver: local
+  backend_data:
+    driver: local
+
+networks:
+  factorypilot-network:
+    name: factorypilot-network
+    driver: bridge
