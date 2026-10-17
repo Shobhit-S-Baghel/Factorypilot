@@ -15,6 +15,14 @@ import {
   Sparkles,
   ExternalLink,
 } from "lucide-react";
+import { formatTimeShort } from "@/lib/formatters";
+
+interface DiagnosedFaultInfo {
+  diagnosed_component?: string;
+  failure_mechanism?: string;
+  recommended_action?: string;
+  is_anomaly?: boolean;
+}
 
 interface DiagnosticMessage {
   id: string;
@@ -24,6 +32,9 @@ interface DiagnosticMessage {
   troubleshootData?: {
     safety_advisory: string;
     loto_mandatory: boolean;
+    diagnosed_component?: string;
+    failure_mechanism?: string;
+    recommended_action?: string;
     root_causes: { cause: string; probability: number; severity: string; rationale: string }[];
     inspection_steps: {
       step_number: number;
@@ -47,16 +58,19 @@ interface DiagnosticChatProps {
   apiBaseUrl: string;
   machineId: string;
   currentAnomalySummary?: any;
+  diagnosedFault?: DiagnosedFaultInfo | null;
 }
 
 export const DiagnosticChat: React.FC<DiagnosticChatProps> = ({
   apiBaseUrl,
   machineId,
   currentAnomalySummary,
+  diagnosedFault,
 }) => {
   const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [checkedSteps, setCheckedSteps] = useState<Record<string, boolean>>({});
+  const [localFault, setLocalFault] = useState<DiagnosedFaultInfo | null>(null);
   const [activeModalCitation, setActiveModalCitation] = useState<{
     manual: string;
     chapter: string;
@@ -74,10 +88,16 @@ export const DiagnosticChat: React.FC<DiagnosticChatProps> = ({
     {
       id: "init-1",
       sender: "assistant",
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      text: `FactoryPilot Copilot initialized for asset ${machineId}. Ready to assist with ISO 10816 vibration guidelines, OSHA LOTO de-energization sequences, cavitation diagnostics, or bearing overhaul procedures.`,
+      timestamp: "12:00",
+      text: "System standby. Upload machine telemetry to identify anomalous conditions and failing components.",
     },
   ]);
+
+  const activeDiagnosis =
+    localFault ||
+    (diagnosedFault && (diagnosedFault.is_anomaly || diagnosedFault.diagnosed_component)
+      ? diagnosedFault
+      : null);
 
   const toggleCheckStep = (stepKey: string) => {
     setCheckedSteps((prev) => ({ ...prev, [stepKey]: !prev[stepKey] }));
@@ -89,7 +109,7 @@ export const DiagnosticChat: React.FC<DiagnosticChatProps> = ({
     const userMsg: DiagnosticMessage = {
       id: `msg-${Date.now()}-user`,
       sender: "technician",
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      timestamp: formatTimeShort(new Date()),
       text: userQuery,
     };
 
@@ -114,14 +134,26 @@ export const DiagnosticChat: React.FC<DiagnosticChatProps> = ({
 
       const data = await res.json();
 
+      if (data.diagnosed_component) {
+        setLocalFault({
+          diagnosed_component: data.diagnosed_component,
+          failure_mechanism: data.failure_mechanism,
+          recommended_action: data.recommended_mitigation,
+          is_anomaly: true,
+        });
+      }
+
       const assistantMsg: DiagnosticMessage = {
         id: `msg-${Date.now()}-assistant`,
         sender: "assistant",
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        timestamp: formatTimeShort(new Date()),
         text: `Diagnostic evaluation complete for ${machineId}. Retrieved ${data.retrieved_manual_citations?.length || 0} manual citations with ${(data.confidence_score * 100).toFixed(0)}% algorithmic confidence.`,
         troubleshootData: {
           safety_advisory: data.safety_and_loto_advisory,
           loto_mandatory: data.loto_mandatory,
+          diagnosed_component: data.diagnosed_component,
+          failure_mechanism: data.failure_mechanism,
+          recommended_action: data.recommended_mitigation,
           root_causes: data.root_cause_probability_ranking?.map((r: any) => ({
             cause: r.cause,
             probability: r.probability_percentage,
@@ -157,7 +189,7 @@ export const DiagnosticChat: React.FC<DiagnosticChatProps> = ({
       const fallbackMsg: DiagnosticMessage = {
         id: `msg-${Date.now()}-fallback`,
         sender: "assistant",
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        timestamp: formatTimeShort(new Date()),
         text: `Consulting offline technical manual index for ${machineId}.`,
         troubleshootData: {
           safety_advisory:
@@ -255,6 +287,51 @@ export const DiagnosticChat: React.FC<DiagnosticChatProps> = ({
         ))}
       </div>
 
+      {/* Prominent Sub-Component Pinpoint Card when Anomaly is detected */}
+      {activeDiagnosis && activeDiagnosis.diagnosed_component && (
+        <div className="mb-3 p-3.5 rounded-xl border border-rose-300 bg-rose-50/70 shadow-sm text-slate-800">
+          <div className="flex items-center justify-between pb-2 border-b border-rose-200 mb-2">
+            <div className="flex items-center space-x-1.5 text-xs font-bold text-rose-800 uppercase tracking-wider">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>Fault Diagnostic Localization</span>
+            </div>
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-rose-600 text-white shadow-sm">
+              Anomaly Detected
+            </span>
+          </div>
+
+          <div className="space-y-2 text-xs">
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block mb-1">
+                Identified Faulty Part / Sub-System
+              </span>
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-rose-100 border border-rose-300 text-rose-900 font-bold text-xs font-mono shadow-sm">
+                <Wrench className="w-3.5 h-3.5 text-rose-700" />
+                <span>{activeDiagnosis.diagnosed_component}</span>
+              </div>
+            </div>
+
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block mb-0.5">
+                Primary Failure Mechanism
+              </span>
+              <p className="text-slate-900 font-medium leading-relaxed">
+                {activeDiagnosis.failure_mechanism || "Acoustic and vibration excursion exceeding ISO 10816 baseline"}
+              </p>
+            </div>
+
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block mb-0.5">
+                Recommended Action
+              </span>
+              <p className="text-slate-800 bg-white/80 border border-rose-200 p-2 rounded-md font-medium leading-relaxed text-[11px]">
+                {activeDiagnosis.recommended_action || "Isolate machine under OSHA LOTO, inspect mechanical clearances, and replace damaged sub-components."}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Message history scroll area */}
       <div className="flex-1 overflow-y-auto space-y-4 pr-1">
         {messages.map((msg) => (
@@ -267,7 +344,7 @@ export const DiagnosticChat: React.FC<DiagnosticChatProps> = ({
                 {msg.sender === "technician" ? "Field Technician" : "FactoryPilot Copilot"}
               </span>
               <span>&bull;</span>
-              <span>{msg.timestamp}</span>
+              <span suppressHydrationWarning>{msg.timestamp}</span>
             </div>
 
             <div
@@ -292,6 +369,31 @@ export const DiagnosticChat: React.FC<DiagnosticChatProps> = ({
                       <p className="text-[11px] leading-relaxed text-rose-800">
                         {msg.troubleshootData.safety_advisory}
                       </p>
+                    </div>
+                  )}
+
+                  {/* Pinpointed Faulty Sub-Component */}
+                  {msg.troubleshootData.diagnosed_component && (
+                    <div className="p-2.5 rounded-lg bg-white border border-rose-200">
+                      <div className="text-[10px] uppercase font-bold text-slate-500 tracking-wider mb-1 flex items-center gap-1">
+                        <Wrench className="w-3 h-3 text-rose-600" />
+                        <span>Identified Faulty Part / Sub-System</span>
+                      </div>
+                      <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-rose-100 border border-rose-300 text-rose-900 font-bold font-mono text-xs">
+                        <span>{msg.troubleshootData.diagnosed_component}</span>
+                      </div>
+                      {msg.troubleshootData.failure_mechanism && (
+                        <div className="text-[11px] text-slate-700 mt-1.5">
+                          <span className="font-semibold text-slate-900">Failure Mechanism:</span>{" "}
+                          {msg.troubleshootData.failure_mechanism}
+                        </div>
+                      )}
+                      {msg.troubleshootData.recommended_action && (
+                        <div className="text-[11px] text-teal-800 mt-1 bg-teal-50 border border-teal-200 p-1.5 rounded">
+                          <span className="font-semibold text-teal-900">Action:</span>{" "}
+                          {msg.troubleshootData.recommended_action}
+                        </div>
+                      )}
                     </div>
                   )}
 

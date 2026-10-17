@@ -38,3 +38,5 @@ class TelemetryUploadResponse(BaseModel):
     sampling_rate_seconds: Optional[float] = None
     feature_summary: Dict[str, SensorChannelStats]
     preview_records: List[Dict[str, Any]]
+    analysis: Optional[Any] = None
+    records: Optional[List[Dict[str, Any]]] = None

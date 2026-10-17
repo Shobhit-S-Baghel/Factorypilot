@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { TelemetryPoint } from "@/components/TelemetryChart";
 import { AnomalyRecord } from "@/components/AnomalyTable";
+import { formatTimestamp } from "@/lib/formatters";
 
 export type ConnectionState = "Live" | "Reconnecting" | "Offline";
 export type SpeedMultiplier = 1 | 2 | 5;
@@ -92,12 +93,7 @@ export function useTelemetryStream(options: UseTelemetryStreamOptions = {}) {
   }, []);
 
   const formatTimeString = (isoTimestamp: string) => {
-    try {
-      const d = new Date(isoTimestamp);
-      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    } catch {
-      return isoTimestamp.slice(11, 19);
-    }
+    return formatTimestamp(isoTimestamp);
   };
 
   const connect = useCallback(() => {

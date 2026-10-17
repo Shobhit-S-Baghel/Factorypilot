@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { AlertCircle, AlertTriangle, ShieldCheck, ChevronRight, Info } from "lucide-react";
+import { formatTimestamp } from "@/lib/formatters";
 
 export interface AnomalyRecord {
   timestamp: string;
@@ -94,7 +95,9 @@ export const AnomalyTable: React.FC<AnomalyTableProps> = ({ anomalies, onSelectA
             {filtered.length === 0 ? (
               <tr>
                 <td colSpan={6} className="py-6 text-center text-slate-400 font-sans">
-                  No anomaly records match the selected filter criteria.
+                  {anomalies.length === 0
+                    ? "Standby Mode — Upload telemetry CSV to record anomaly events."
+                    : "No anomaly records match the selected filter criteria."}
                 </td>
               </tr>
             ) : (
@@ -109,12 +112,8 @@ export const AnomalyTable: React.FC<AnomalyTableProps> = ({ anomalies, onSelectA
                       isCrit ? "bg-rose-50/20" : isWarn ? "bg-amber-50/20" : ""
                     }`}
                   >
-                    <td className="py-2.5 px-3 text-slate-600 font-medium">
-                      {new Date(record.timestamp).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        second: "2-digit",
-                      })}
+                    <td className="py-2.5 px-3 text-slate-600 font-medium font-mono" suppressHydrationWarning>
+                      {formatTimestamp(record.timestamp)}
                     </td>
                     <td className="py-2.5 px-3 font-semibold text-slate-900">{record.machine_id}</td>
                     <td className="py-2.5 px-3">

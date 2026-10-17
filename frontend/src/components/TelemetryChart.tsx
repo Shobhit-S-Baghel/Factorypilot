@@ -15,7 +15,7 @@ import {
   Bar,
   Cell,
 } from "recharts";
-import { Gauge, AlertTriangle, Layers, BarChart3, Clock } from "lucide-react";
+import { Gauge, AlertTriangle, Layers, BarChart3, Clock, Upload } from "lucide-react";
 
 export interface TelemetryPoint {
   time: string;
@@ -129,110 +129,124 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({
         </div>
 
         {/* Multi-channel synchronized chart */}
-        <div className="h-72 w-full mt-4">
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
-              <XAxis
-                dataKey="time"
-                stroke="#94A3B8"
-                fontSize={11}
-                tickLine={false}
-                fontFamily="ui-monospace, monospace"
-              />
-              <YAxis
-                stroke="#94A3B8"
-                fontSize={11}
-                tickLine={false}
-                axisLine={false}
-                fontFamily="ui-monospace, monospace"
-              />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "#FFFFFF",
-                  border: "1px solid #E2E8F0",
-                  borderRadius: "8px",
-                  boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-                  fontSize: "12px",
-                  fontFamily: "ui-monospace, monospace",
-                }}
-              />
-              <Legend wrapperStyle={{ paddingTop: "10px", fontSize: "12px" }} />
-
-              {/* Render semi-transparent shaded bands directly over time ranges where anomalies were detected */}
-              {anomalyRanges.map((range, idx) => (
-                <ReferenceArea
-                  key={idx}
-                  x1={range.start}
-                  x2={range.end}
-                  fill={range.severity === "critical" ? "#EF4444" : "#F59E0B"}
-                  fillOpacity={0.18}
-                  stroke={range.severity === "critical" ? "#EF4444" : "#F59E0B"}
-                  strokeOpacity={0.4}
-                  strokeDasharray="2 2"
-                  label={{
-                    value: "ANOMALY EXCURSION",
-                    position: "insideTop",
-                    fill: range.severity === "critical" ? "#B91C1C" : "#B45309",
-                    fontSize: 10,
-                    fontWeight: 700,
+        {data.length === 0 ? (
+          <div className="h-72 w-full mt-4 flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/60 p-6 text-center">
+            <div className="w-12 h-12 rounded-full bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-700 mb-3 shadow-sm">
+              <Upload className="w-6 h-6" />
+            </div>
+            <h4 className="font-semibold text-slate-800 text-sm">
+              Standby Mode / Awaiting Sensor Telemetry
+            </h4>
+            <p className="text-xs text-slate-500 mt-1 max-w-sm">
+              Upload a plant sensor CSV to begin automated telemetry analysis
+            </p>
+          </div>
+        ) : (
+          <div className="h-72 w-full mt-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+                <XAxis
+                  dataKey="time"
+                  stroke="#94A3B8"
+                  fontSize={11}
+                  tickLine={false}
+                  fontFamily="ui-monospace, monospace"
+                />
+                <YAxis
+                  stroke="#94A3B8"
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                  fontFamily="ui-monospace, monospace"
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "#FFFFFF",
+                    border: "1px solid #E2E8F0",
+                    borderRadius: "8px",
+                    boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+                    fontSize: "12px",
+                    fontFamily: "ui-monospace, monospace",
                   }}
                 />
-              ))}
+                <Legend wrapperStyle={{ paddingTop: "10px", fontSize: "12px" }} />
 
-              {activeMetrics.vibration && (
-                <Line
-                  type="monotone"
-                  dataKey="vibration_rms"
-                  name="Vibration RMS (mm/s)"
-                  stroke="#0D9488"
-                  strokeWidth={2.2}
-                  dot={{ r: 2 }}
-                  activeDot={{ r: 5 }}
-                  isAnimationActive={false}
-                />
-              )}
+                {/* Render semi-transparent shaded bands directly over time ranges where anomalies were detected */}
+                {anomalyRanges.map((range, idx) => (
+                  <ReferenceArea
+                    key={idx}
+                    x1={range.start}
+                    x2={range.end}
+                    fill={range.severity === "critical" ? "#EF4444" : "#F59E0B"}
+                    fillOpacity={0.18}
+                    stroke={range.severity === "critical" ? "#EF4444" : "#F59E0B"}
+                    strokeOpacity={0.4}
+                    strokeDasharray="2 2"
+                    label={{
+                      value: "ANOMALY EXCURSION",
+                      position: "insideTop",
+                      fill: range.severity === "critical" ? "#B91C1C" : "#B45309",
+                      fontSize: 10,
+                      fontWeight: 700,
+                    }}
+                  />
+                ))}
 
-              {activeMetrics.temperature && (
-                <Line
-                  type="monotone"
-                  dataKey="bearing_temp"
-                  name="Bearing Temp (°C)"
-                  stroke="#F59E0B"
-                  strokeWidth={2.2}
-                  dot={{ r: 2 }}
-                  activeDot={{ r: 5 }}
-                  isAnimationActive={false}
-                />
-              )}
+                {activeMetrics.vibration && (
+                  <Line
+                    type="monotone"
+                    dataKey="vibration_rms"
+                    name="Vibration RMS (mm/s)"
+                    stroke="#0D9488"
+                    strokeWidth={2.2}
+                    dot={{ r: 2 }}
+                    activeDot={{ r: 5 }}
+                    isAnimationActive={false}
+                  />
+                )}
 
-              {activeMetrics.current && (
-                <Line
-                  type="monotone"
-                  dataKey="current_amps"
-                  name="Current Draw (A)"
-                  stroke="#EF4444"
-                  strokeWidth={2.0}
-                  dot={{ r: 2 }}
-                  activeDot={{ r: 5 }}
-                  isAnimationActive={false}
-                />
-              )}
+                {activeMetrics.temperature && (
+                  <Line
+                    type="monotone"
+                    dataKey="bearing_temp"
+                    name="Bearing Temp (°C)"
+                    stroke="#F59E0B"
+                    strokeWidth={2.2}
+                    dot={{ r: 2 }}
+                    activeDot={{ r: 5 }}
+                    isAnimationActive={false}
+                  />
+                )}
 
-              {activeMetrics.rpm && (
-                <Line
-                  type="monotone"
-                  dataKey="rpm"
-                  name="Shaft Speed (RPM)"
-                  stroke="#64748B"
-                  strokeWidth={1.8}
-                  dot={false}
-                  isAnimationActive={false}
-                />
-              )}
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
+                {activeMetrics.current && (
+                  <Line
+                    type="monotone"
+                    dataKey="current_amps"
+                    name="Current Draw (A)"
+                    stroke="#EF4444"
+                    strokeWidth={2.0}
+                    dot={{ r: 2 }}
+                    activeDot={{ r: 5 }}
+                    isAnimationActive={false}
+                  />
+                )}
+
+                {activeMetrics.rpm && (
+                  <Line
+                    type="monotone"
+                    dataKey="rpm"
+                    name="Shaft Speed (RPM)"
+                    stroke="#64748B"
+                    strokeWidth={1.8}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                )}
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        )}
 
         <div className="flex items-center justify-between text-xs text-slate-500 pt-3 border-t border-slate-100 mt-2">
           <div className="flex items-center space-x-3">
@@ -267,48 +281,62 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({
           Identifies which physical channels contribute most significantly to the machine&apos;s anomaly risk score.
         </p>
 
-        <div className="h-44 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart
-              data={sensorContributions}
-              layout="vertical"
-              margin={{ top: 5, right: 30, left: 100, bottom: 5 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F1F5F9" />
-              <XAxis
-                type="number"
-                domain={[0, 1]}
-                tickFormatter={(val) => `${(val * 100).toFixed(0)}%`}
-                fontSize={11}
-                stroke="#94A3B8"
-                fontFamily="ui-monospace, monospace"
-              />
-              <YAxis
-                type="category"
-                dataKey="sensor_channel"
-                fontSize={11}
-                stroke="#475569"
-                fontFamily="ui-monospace, monospace"
-                tickLine={false}
-              />
-              <Tooltip
-                formatter={(value: any) => [`${(Number(value) * 100).toFixed(1)}%`, "Contribution"]}
-                contentStyle={{
-                  backgroundColor: "#FFFFFF",
-                  border: "1px solid #E2E8F0",
-                  borderRadius: "8px",
-                  fontSize: "12px",
-                  fontFamily: "ui-monospace, monospace",
-                }}
-              />
-              <Bar dataKey="contribution_score" radius={[0, 4, 4, 0]}>
-                {sensorContributions.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={getBarColor(entry.contribution_score)} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        {sensorContributions.length === 0 ? (
+          <div className="h-44 w-full flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/60 p-4 text-center">
+            <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-2 shadow-sm">
+              <Upload className="w-5 h-5 text-teal-600" />
+            </div>
+            <h4 className="font-semibold text-slate-800 text-xs">
+              Standby Mode / Awaiting Sensor Telemetry
+            </h4>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Upload a plant sensor CSV to begin automated telemetry analysis
+            </p>
+          </div>
+        ) : (
+          <div className="h-44 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={sensorContributions}
+                layout="vertical"
+                margin={{ top: 5, right: 30, left: 100, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F1F5F9" />
+                <XAxis
+                  type="number"
+                  domain={[0, 1]}
+                  tickFormatter={(val) => `${(val * 100).toFixed(0)}%`}
+                  fontSize={11}
+                  stroke="#94A3B8"
+                  fontFamily="ui-monospace, monospace"
+                />
+                <YAxis
+                  type="category"
+                  dataKey="sensor_channel"
+                  fontSize={11}
+                  stroke="#475569"
+                  fontFamily="ui-monospace, monospace"
+                  tickLine={false}
+                />
+                <Tooltip
+                  formatter={(value: any) => [`${(Number(value) * 100).toFixed(1)}%`, "Contribution"]}
+                  contentStyle={{
+                    backgroundColor: "#FFFFFF",
+                    border: "1px solid #E2E8F0",
+                    borderRadius: "8px",
+                    fontSize: "12px",
+                    fontFamily: "ui-monospace, monospace",
+                  }}
+                />
+                <Bar dataKey="contribution_score" radius={[0, 4, 4, 0]}>
+                  {sensorContributions.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={getBarColor(entry.contribution_score)} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
     </div>
   );

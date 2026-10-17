@@ -35,7 +35,20 @@ async def upload_telemetry_csv(file: UploadFile = File(...)) -> TelemetryUploadR
                 detail="Uploaded file is empty.",
             )
 
-        response, _ = telemetry_service.process_csv_upload(content)
+        response, features_df = telemetry_service.process_csv_upload(content)
+        analysis_result = ml_engine.detect_anomalies(features_df)
+        response.analysis = analysis_result
+        records = []
+        for idx in range(len(features_df)):
+            records.append({
+                "timestamp": str(features_df["parsed_timestamp"].iloc[idx]),
+                "rotational_speed_rpm": float(features_df["rotational_speed_rpm"].iloc[idx]),
+                "vibration_rms_mms": float(features_df["vibration_rms_mms"].iloc[idx]),
+                "bearing_temperature_c": float(features_df["bearing_temperature_c"].iloc[idx]),
+                "current_draw_amps": float(features_df["current_draw_amps"].iloc[idx]),
+                "acoustic_db": float(features_df["acoustic_db"].iloc[idx]),
+            })
+        response.records = records
         return response
     except HTTPException:
         raise

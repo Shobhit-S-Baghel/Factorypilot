@@ -62,10 +62,18 @@ export const CsvUploader: React.FC<CsvUploaderProps> = ({
       const formData = new FormData();
       formData.append("file", file);
 
-      const res = await fetch(`${apiBaseUrl}/api/v1/telemetry/upload-and-analyze`, {
+      let res = await fetch(`${apiBaseUrl}/api/v1/telemetry/upload`, {
         method: "POST",
         body: formData,
       });
+
+      if (!res.ok) {
+        // Fallback attempt to upload-and-analyze if upload failed
+        res = await fetch(`${apiBaseUrl}/api/v1/telemetry/upload-and-analyze`, {
+          method: "POST",
+          body: formData,
+        });
+      }
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({ detail: "Upload failed" }));
@@ -73,24 +81,48 @@ export const CsvUploader: React.FC<CsvUploaderProps> = ({
       }
 
       const result = await res.json();
-      onAnalysisComplete(result);
+      const payload = result.analysis
+        ? {
+            ...result.analysis,
+            machine_id: result.machine_id || result.analysis.machine_id,
+            records: result.records,
+          }
+        : result;
+      onAnalysisComplete(payload);
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to process telemetry CSV");
       // Provide fallback mock analysis for resilience in offline demo
+      const isSpindle = file.name.includes("spindle");
+      const isBaseline = file.name.includes("baseline");
       onAnalysisComplete({
-        machine_id: file.name.includes("spindle") ? "CNC-SPINDLE-01" : "PUMP-01",
-        overall_state: file.name.includes("baseline") ? "Nominal" : "Critical",
-        equipment_health_index: file.name.includes("baseline") ? 92.5 : 44.0,
-        iso_10816_zone: file.name.includes("baseline") ? "Zone A (Good)" : "Zone D (Critical Trip)",
+        machine_id: isSpindle ? "CNC-SPINDLE-01" : "PUMP-01",
+        overall_state: isBaseline ? "Nominal" : "Critical",
+        equipment_health_index: isBaseline ? 92.5 : 44.0,
+        iso_10816_zone: isBaseline ? "Zone A (Good)" : "Zone D (Critical Trip)",
         total_data_points: 20,
-        anomalous_data_points: file.name.includes("baseline") ? 0 : 8,
-        anomaly_percentage: file.name.includes("baseline") ? 0 : 40.0,
-        affected_sensor_channels: file.name.includes("spindle")
+        anomalous_data_points: isBaseline ? 0 : 8,
+        anomaly_percentage: isBaseline ? 0 : 40.0,
+        diagnosed_component: isBaseline
+          ? "Nominal Subsystems"
+          : isSpindle
+          ? "Spindle Shaft Misalignment / Unbalance"
+          : "Pump Impeller Cavitation",
+        failure_mechanism: isBaseline
+          ? "Standard hydrodynamic operation"
+          : isSpindle
+          ? "Thermal runaway and crest factor elevation on spindle bearing"
+          : "Cavitation erosion on suction vane leading edge",
+        recommended_action: isBaseline
+          ? "Continue standard operating schedule"
+          : isSpindle
+          ? "Inspect spindle runout and perform lubrication service"
+          : "Inspect suction strainer for blockage and check NPSHa margin",
+        affected_sensor_channels: isSpindle
           ? ["current_draw_amps", "bearing_temperature_c"]
           : ["vibration_rms_mms", "acoustic_db"],
         sensor_contribution_rankings: [
           {
-            sensor_channel: file.name.includes("spindle") ? "current_draw_amps" : "vibration_rms_mms",
+            sensor_channel: isSpindle ? "current_draw_amps" : "vibration_rms_mms",
             contribution_score: 0.65,
             current_value: 5.4,
             unit: "mm/s",
@@ -99,7 +131,7 @@ export const CsvUploader: React.FC<CsvUploaderProps> = ({
             deviation_description: "Elevated by +3.8σ over baseline",
           },
           {
-            sensor_channel: file.name.includes("spindle") ? "bearing_temperature_c" : "acoustic_db",
+            sensor_channel: isSpindle ? "bearing_temperature_c" : "acoustic_db",
             contribution_score: 0.25,
             current_value: 94.5,
             unit: "dB",

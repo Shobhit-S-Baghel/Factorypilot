@@ -2,6 +2,7 @@
 
 import React from "react";
 import { AlertTriangle, CheckCircle2, Flame, Gauge, Zap, Droplets, RefreshCw } from "lucide-react";
+import { formatTimestamp } from "@/lib/formatters";
 
 export interface TelemetryReading {
   machine_id: string;
@@ -92,8 +93,8 @@ export const MachineMetrics: React.FC<MachineMetricsProps> = ({ readings, onRefr
                     </span>
                     <h3 className="font-semibold text-lg text-white">{machine.machine_name}</h3>
                   </div>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Last update: {new Date(machine.timestamp).toLocaleTimeString()}
+                  <p className="text-xs text-slate-400 mt-1 font-mono" suppressHydrationWarning>
+                    Last update: {formatTimestamp(machine.timestamp)}
                   </p>
                 </div>
 
@@ -161,7 +162,7 @@ export const MachineMetrics: React.FC<MachineMetricsProps> = ({ readings, onRefr
                       <RefreshCw className="w-4 h-4 text-slate-500" />
                     </div>
                     <div className="flex items-baseline gap-1">
-                      <span className="text-2xl font-bold font-mono text-cyan-400">
+                      <span className="text-2xl font-bold font-mono text-cyan-400" suppressHydrationWarning>
                         {Math.round(machine.rpm).toLocaleString()}
                       </span>
                       <span className="text-xs text-slate-400 font-mono">RPM</span>

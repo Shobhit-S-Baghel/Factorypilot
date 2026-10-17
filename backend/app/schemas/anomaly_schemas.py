@@ -39,3 +39,6 @@ class AnomalyDetectionResponse(BaseModel):
     feature_deviations: Dict[str, Dict[str, float]]
     anomaly_timeline: List[AnomalyPoint]
     executive_summary: str
+    diagnosed_component: Optional[str] = Field(default=None, description="Pinpointed failing sub-component")
+    failure_mechanism: Optional[str] = Field(default=None, description="Underlying physical failure mode")
+    recommended_action: Optional[str] = Field(default=None, description="Immediate corrective action recommended")

@@ -394,6 +394,27 @@ class ManualRagService:
                 manual_reference="cnc_milling_spindle_manual.md - Section 5",
             ))
 
+        # 6. Pinpoint failing sub-component
+        from app.services.ml_engine import ml_engine
+
+        vib_val = float(anomaly.get("vibration_rms_mms", 0.0) or anomaly.get("vibration_rms", 0.0) or 0.0)
+        temp_val = float(anomaly.get("bearing_temperature_c", 0.0) or anomaly.get("bearing_temp", 0.0) or 0.0)
+        amps_val = float(anomaly.get("current_draw_amps", 0.0) or anomaly.get("current_amps", 0.0) or 0.0)
+        acoustic_val = float(anomaly.get("acoustic_db", 0.0) or 0.0)
+        rpm_val = float(anomaly.get("rotational_speed_rpm", 0.0) or anomaly.get("rpm", 0.0) or 0.0)
+        crest_val = float(anomaly.get("crest_factor", 0.0) or 0.0)
+
+        subcomp_info = ml_engine.pinpoint_subcomponent(
+            machine_id=machine_id,
+            vibration_rms=vib_val,
+            bearing_temp=temp_val,
+            current_amps=amps_val,
+            acoustic_db=acoustic_val,
+            crest_factor=crest_val,
+            rpm=rpm_val,
+            query=query,
+        )
+
         return TroubleshootResponse(
             machine_id=machine_id,
             timestamp=datetime.utcnow(),
@@ -405,6 +426,9 @@ class ManualRagService:
             recommended_corrective_actions=corrective_actions,
             retrieved_manual_citations=citations,
             confidence_score=0.92,
+            diagnosed_component=subcomp_info["diagnosed_component"],
+            failure_mechanism=subcomp_info["failure_mechanism"],
+            recommended_mitigation=subcomp_info["recommended_action"],
         )
 
 

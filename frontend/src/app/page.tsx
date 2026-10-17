@@ -11,6 +11,7 @@ import { StreamControls, SCENARIO_OPTIONS } from "@/components/StreamControls";
 import { VibrationGauge, ThermalGauge, AcousticGauge, EmergencyBanner } from "@/components/Gauges";
 import { TicketModal } from "@/components/TicketModal";
 import { useTelemetryStream, SpeedMultiplier } from "@/hooks/useTelemetryStream";
+import { formatTimestamp } from "@/lib/formatters";
 import {
   Activity,
   AlertTriangle,
@@ -26,21 +27,10 @@ import {
   FileText,
   Sliders,
   Sparkles,
+  Upload,
 } from "lucide-react";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-const INITIAL_TELEMETRY_POINTS: TelemetryPoint[] = [
-  { time: "14:00", timestamp: "2026-10-18T14:00:00Z", vibration_rms: 1.15, bearing_temp: 58.4, rpm: 1750, current_amps: 116.2, acoustic_db: 70.1, is_anomaly: false },
-  { time: "14:01", timestamp: "2026-10-18T14:01:00Z", vibration_rms: 1.35, bearing_temp: 61.2, rpm: 1748, current_amps: 118.2, acoustic_db: 73.0, is_anomaly: false },
-  { time: "14:01:30", timestamp: "2026-10-18T14:01:30Z", vibration_rms: 1.85, bearing_temp: 63.4, rpm: 1746, current_amps: 121.0, acoustic_db: 78.2, is_anomaly: false },
-  { time: "14:02", timestamp: "2026-10-18T14:02:00Z", vibration_rms: 3.15, bearing_temp: 67.2, rpm: 1742, current_amps: 126.8, acoustic_db: 87.0, is_anomaly: true, anomaly_score: 0.72 },
-  { time: "14:02:30", timestamp: "2026-10-18T14:02:30Z", vibration_rms: 4.65, bearing_temp: 72.1, rpm: 1738, current_amps: 131.2, acoustic_db: 93.8, is_anomaly: true, anomaly_score: 0.88 },
-  { time: "14:03", timestamp: "2026-10-18T14:03:00Z", vibration_rms: 5.45, bearing_temp: 76.8, rpm: 1735, current_amps: 134.5, acoustic_db: 95.2, is_anomaly: true, anomaly_score: 0.94 },
-  { time: "14:03:30", timestamp: "2026-10-18T14:03:30Z", vibration_rms: 5.55, bearing_temp: 79.0, rpm: 1733, current_amps: 135.0, acoustic_db: 95.5, is_anomaly: true, anomaly_score: 0.95 },
-  { time: "14:04", timestamp: "2026-10-18T14:04:00Z", vibration_rms: 5.10, bearing_temp: 79.8, rpm: 1735, current_amps: 133.2, acoustic_db: 93.9, is_anomaly: true, anomaly_score: 0.89 },
-  { time: "14:04:30", timestamp: "2026-10-18T14:04:30Z", vibration_rms: 4.40, bearing_temp: 80.3, rpm: 1737, current_amps: 131.0, acoustic_db: 90.5, is_anomaly: true, anomaly_score: 0.82 },
-];
 
 export default function DashboardPage() {
   const [selectedMachineId, setSelectedMachineId] = useState<string>("PUMP-01");
@@ -48,70 +38,39 @@ export default function DashboardPage() {
   const [isIngesting, setIsIngesting] = useState<boolean>(false);
   const [isTicketModalOpen, setIsTicketModalOpen] = useState<boolean>(false);
 
-  // Fallback initial machine state
-  const [equipmentHealthIndex, setEquipmentHealthIndex] = useState<number>(54.0);
-  const [operationalState, setOperationalState] = useState<string>("Degraded");
-  const [isoZone, setIsoZone] = useState<string>("Zone C (Warning - 4.4 mm/s)");
-  const [estimatedTimeToMaintenance, setEstimatedTimeToMaintenance] = useState<string>("~48 Hours (Action Required)");
+  // Zero-state initialization flag
+  const [hasDataLoaded, setHasDataLoaded] = useState<boolean>(false);
+  const [diagnosedFault, setDiagnosedFault] = useState<{
+    diagnosed_component?: string;
+    failure_mechanism?: string;
+    recommended_action?: string;
+    is_anomaly?: boolean;
+  } | null>(null);
 
-  // Fallback metrics
-  const [currentVibration, setCurrentVibration] = useState<number>(4.4);
-  const [currentBearingTemp, setCurrentBearingTemp] = useState<number>(80.3);
-  const [currentRpm, setCurrentRpm] = useState<number>(1737.0);
-  const [currentAmps, setCurrentAmps] = useState<number>(131.0);
-  const [currentAcousticDb, setCurrentAcousticDb] = useState<number>(90.5);
+  // Machine state initialized to standby / zero-state
+  const [equipmentHealthIndex, setEquipmentHealthIndex] = useState<number | null>(null);
+  const [operationalState, setOperationalState] = useState<string>("Standby");
+  const [isoZone, setIsoZone] = useState<string>("Standby (Awaiting Sensor Telemetry)");
+  const [estimatedTimeToMaintenance, setEstimatedTimeToMaintenance] = useState<string>("Awaiting Sensor Telemetry");
 
-  // Time-series points and anomalies
-  const [staticPoints, setStaticPoints] = useState<TelemetryPoint[]>(INITIAL_TELEMETRY_POINTS);
-  const [staticAnomalies, setStaticAnomalies] = useState<AnomalyRecord[]>([
-    {
-      timestamp: "2026-10-18T14:03:00Z",
-      machine_id: "PUMP-01",
-      is_anomaly: true,
-      anomaly_score: 0.94,
-      risk_score: 94.0,
-      iso_10816_zone: "Zone D (Critical Trip)",
-      thermal_status: "Warning (>80°C)",
-      primary_contributor: "vibration_rms_mms",
-      affected_metrics: ["vibration_rms_mms", "acoustic_db"],
-    },
-    {
-      timestamp: "2026-10-18T14:02:30Z",
-      machine_id: "PUMP-01",
-      is_anomaly: true,
-      anomaly_score: 0.88,
-      risk_score: 88.0,
-      iso_10816_zone: "Zone D (Critical Trip)",
-      thermal_status: "Nominal",
-      primary_contributor: "vibration_rms_mms",
-      affected_metrics: ["vibration_rms_mms"],
-    },
-    {
-      timestamp: "2026-10-18T14:02:00Z",
-      machine_id: "PUMP-01",
-      is_anomaly: true,
-      anomaly_score: 0.72,
-      risk_score: 72.0,
-      iso_10816_zone: "Zone C (Warning)",
-      thermal_status: "Nominal",
-      primary_contributor: "acoustic_db",
-      affected_metrics: ["acoustic_db"],
-    },
-  ]);
+  // Telemetry metrics initialized to null
+  const [currentVibration, setCurrentVibration] = useState<number | null>(null);
+  const [currentBearingTemp, setCurrentBearingTemp] = useState<number | null>(null);
+  const [currentRpm, setCurrentRpm] = useState<number | null>(null);
+  const [currentAmps, setCurrentAmps] = useState<number | null>(null);
+  const [currentAcousticDb, setCurrentAcousticDb] = useState<number | null>(null);
 
-  const [sensorContributions, setSensorContributions] = useState<SensorContributionData[]>([
-    { sensor_channel: "vibration_rms_mms", contribution_score: 0.58, current_value: 5.4, unit: "mm/s" },
-    { sensor_channel: "acoustic_db", contribution_score: 0.24, current_value: 95.2, unit: "dB" },
-    { sensor_channel: "bearing_temperature_c", contribution_score: 0.12, current_value: 80.3, unit: "°C" },
-    { sensor_channel: "current_draw_amps", contribution_score: 0.06, current_value: 135.0, unit: "Amps" },
-  ]);
+  // Time-series points and anomalies initialized empty
+  const [staticPoints, setStaticPoints] = useState<TelemetryPoint[]>([]);
+  const [staticAnomalies, setStaticAnomalies] = useState<AnomalyRecord[]>([]);
+  const [sensorContributions, setSensorContributions] = useState<SensorContributionData[]>([]);
 
-  // Hook into live WebSocket telemetry stream
+  // Hook into live WebSocket telemetry stream (autoStart: false for zero-state)
   const stream = useTelemetryStream({
     defaultScenario: "centrifugal_pump_cavitation",
     defaultSpeed: 1,
     bufferSize: 60,
-    autoStart: true,
+    autoStart: false,
   });
 
   // Check backend health periodically
@@ -134,6 +93,7 @@ export default function DashboardPage() {
   // When live telemetry frame arrives from WebSocket, sync local dashboard state
   useEffect(() => {
     if (stream.latestFrame) {
+      setHasDataLoaded(true);
       const frame = stream.latestFrame;
 
       if (frame.machine_id) {
@@ -218,22 +178,31 @@ export default function DashboardPage() {
 
   // Determine active telemetry points (rolling 60 points if streaming, else fallback)
   const activeTelemetryPoints = useMemo(() => {
+    if (!hasDataLoaded) {
+      return [];
+    }
     if (stream.telemetryBuffer && stream.telemetryBuffer.length > 0) {
       return stream.telemetryBuffer;
     }
     return staticPoints;
-  }, [stream.telemetryBuffer, staticPoints]);
+  }, [hasDataLoaded, stream.telemetryBuffer, staticPoints]);
 
   // Determine active anomaly records
   const activeAnomalyRecords = useMemo(() => {
+    if (!hasDataLoaded) {
+      return [];
+    }
     if (stream.anomalyTimeline && stream.anomalyTimeline.length > 0) {
       return stream.anomalyTimeline;
     }
     return staticAnomalies;
-  }, [stream.anomalyTimeline, staticAnomalies]);
+  }, [hasDataLoaded, stream.anomalyTimeline, staticAnomalies]);
 
   // Compute shaded anomaly ranges for Recharts
   const anomalyRanges = useMemo(() => {
+    if (!hasDataLoaded || activeTelemetryPoints.length === 0) {
+      return [];
+    }
     const anomPoints = activeTelemetryPoints.filter((p) => p.is_anomaly);
     if (anomPoints.length > 0) {
       return [
@@ -245,31 +214,38 @@ export default function DashboardPage() {
       ];
     }
     return [];
-  }, [activeTelemetryPoints, operationalState]);
+  }, [hasDataLoaded, activeTelemetryPoints, operationalState]);
 
   // Determine primary offending sensor for emergency alert
   const primaryOffendingSensorInfo = useMemo(() => {
-    if (currentVibration > 7.1) {
-      return { channel: "vibration_rms_mms", value: currentVibration.toFixed(2), unit: "mm/s" };
+    const vib = currentVibration ?? 0;
+    const temp = currentBearingTemp ?? 0;
+    const acoustic = currentAcousticDb ?? 0;
+
+    if (vib > 7.1) {
+      return { channel: "vibration_rms_mms", value: vib.toFixed(2), unit: "mm/s" };
     }
-    if (currentBearingTemp > 80.0) {
-      return { channel: "bearing_temperature_c", value: currentBearingTemp.toFixed(1), unit: "°C" };
+    if (temp > 80.0) {
+      return { channel: "bearing_temperature_c", value: temp.toFixed(1), unit: "°C" };
     }
-    if (currentAcousticDb > 85.0) {
-      return { channel: "acoustic_db", value: currentAcousticDb.toFixed(1), unit: "dB" };
+    if (acoustic > 85.0) {
+      return { channel: "acoustic_db", value: acoustic.toFixed(1), unit: "dB" };
     }
-    if (currentVibration >= 2.8) {
-      return { channel: "vibration_rms_mms", value: currentVibration.toFixed(2), unit: "mm/s" };
+    if (vib >= 2.8) {
+      return { channel: "vibration_rms_mms", value: vib.toFixed(2), unit: "mm/s" };
     }
-    return { channel: "vibration_rms_mms", value: currentVibration.toFixed(2), unit: "mm/s" };
+    return { channel: "vibration_rms_mms", value: vib.toFixed(2), unit: "mm/s" };
   }, [currentVibration, currentBearingTemp, currentAcousticDb]);
 
   // Handle uploaded CSV analysis response
   const handleAnalysisComplete = (result: any) => {
     if (!result) return;
+    setHasDataLoaded(true);
 
     if (result.machine_id) setSelectedMachineId(result.machine_id);
-    if (result.equipment_health_index !== undefined) setEquipmentHealthIndex(result.equipment_health_index);
+    if (result.equipment_health_index !== undefined) {
+      setEquipmentHealthIndex(result.equipment_health_index);
+    }
     if (result.overall_state) {
       setOperationalState(result.overall_state);
       if (result.overall_state === "Critical") {
@@ -282,6 +258,17 @@ export default function DashboardPage() {
     }
     if (result.iso_10816_zone) setIsoZone(result.iso_10816_zone);
 
+    if (result.diagnosed_component) {
+      setDiagnosedFault({
+        diagnosed_component: result.diagnosed_component,
+        failure_mechanism: result.failure_mechanism,
+        recommended_action: result.recommended_action,
+        is_anomaly:
+          result.overall_state !== "Nominal" ||
+          (result.anomalous_data_points && result.anomalous_data_points > 0),
+      });
+    }
+
     if (result.sensor_contribution_rankings && Array.isArray(result.sensor_contribution_rankings)) {
       setSensorContributions(
         result.sensor_contribution_rankings.map((c: any) => ({
@@ -293,24 +280,65 @@ export default function DashboardPage() {
       );
     }
 
-    if (result.anomaly_timeline && Array.isArray(result.anomaly_timeline) && result.anomaly_timeline.length > 0) {
-      const points: TelemetryPoint[] = result.anomaly_timeline.map((item: any) => {
-        const d = new Date(item.timestamp);
-        const timeStr = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    // Match anomalies with timestamps
+    const anomalyMap = new Map<string, any>();
+    if (result.anomaly_timeline && Array.isArray(result.anomaly_timeline)) {
+      result.anomaly_timeline.forEach((item: any) => {
+        anomalyMap.set(String(item.timestamp), item);
+      });
+      setStaticAnomalies(result.anomaly_timeline);
+    }
+
+    if (result.records && Array.isArray(result.records) && result.records.length > 0) {
+      const points: TelemetryPoint[] = result.records.map((r: any) => {
+        const anom = anomalyMap.get(String(r.timestamp));
         return {
-          time: timeStr,
-          timestamp: item.timestamp,
+          time: formatTimestamp(r.timestamp),
+          timestamp: String(r.timestamp),
+          vibration_rms: Number(r.vibration_rms_mms ?? 0),
+          bearing_temp: Number(r.bearing_temperature_c ?? 0),
+          rpm: Number(r.rotational_speed_rpm ?? 0),
+          current_amps: Number(r.current_draw_amps ?? 0),
+          acoustic_db: Number(r.acoustic_db ?? 0),
+          is_anomaly: anom ? anom.is_anomaly : false,
+          anomaly_score: anom ? anom.anomaly_score : 0,
+        };
+      });
+      setStaticPoints(points);
+
+      if (points.length > 0) {
+        const last = points[points.length - 1];
+        setCurrentVibration(last.vibration_rms);
+        setCurrentBearingTemp(last.bearing_temp);
+        setCurrentRpm(last.rpm);
+        setCurrentAmps(last.current_amps);
+        setCurrentAcousticDb(last.acoustic_db);
+      }
+    } else if (result.anomaly_timeline && Array.isArray(result.anomaly_timeline) && result.anomaly_timeline.length > 0) {
+      const isCnc = result.machine_id?.includes("CNC");
+      const points: TelemetryPoint[] = result.anomaly_timeline.map((item: any) => {
+        return {
+          time: formatTimestamp(item.timestamp),
+          timestamp: String(item.timestamp),
           vibration_rms: item.primary_contributor === "vibration_rms_mms" ? 5.2 : 1.3,
-          bearing_temp: item.thermal_status.includes("Warning") ? 82.5 : 59.0,
-          rpm: result.machine_id?.includes("CNC") ? 24000 : 1745,
-          current_amps: result.machine_id?.includes("CNC") ? 21.0 : 128.0,
+          bearing_temp: item.thermal_status?.includes("Warning") ? 82.5 : 59.0,
+          rpm: isCnc ? 24000 : 1745,
+          current_amps: isCnc ? 21.0 : 128.0,
           acoustic_db: item.primary_contributor === "acoustic_db" ? 92.0 : 71.0,
           is_anomaly: item.is_anomaly,
           anomaly_score: item.anomaly_score,
         };
       });
       setStaticPoints(points);
-      setStaticAnomalies(result.anomaly_timeline);
+
+      if (points.length > 0) {
+        const last = points[points.length - 1];
+        setCurrentVibration(last.vibration_rms);
+        setCurrentBearingTemp(last.bearing_temp);
+        setCurrentRpm(last.rpm);
+        setCurrentAmps(last.current_amps);
+        setCurrentAcousticDb(last.acoustic_db);
+      }
     }
   };
 
@@ -335,14 +363,14 @@ export default function DashboardPage() {
           }
         }}
         backendStatus={stream.connectionState === "Live" ? "healthy" : backendStatus}
-        equipmentHealth={equipmentHealthIndex}
+        equipmentHealth={equipmentHealthIndex ?? 0}
         operationalState={operationalState}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         {/* 2. Emergency Alert Ribbon with Audible/Visual Pulse (Triggers on Critical) */}
         <EmergencyBanner
-          isCritical={operationalState === "Critical"}
+          isCritical={hasDataLoaded && operationalState === "Critical"}
           machineId={selectedMachineId}
           primaryOffendingSensor={primaryOffendingSensorInfo.channel}
           offendingValue={primaryOffendingSensorInfo.value}
@@ -360,6 +388,7 @@ export default function DashboardPage() {
             speedMultiplier={stream.speedMultiplier}
             currentTick={stream.currentTick}
             totalTicks={stream.totalTicks}
+            disabled={!hasDataLoaded}
             onPlay={() => {
               if (stream.isPlaying) stream.pause();
               else stream.resume();
@@ -391,9 +420,11 @@ export default function DashboardPage() {
                     d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                   />
                   <path
-                    className={`transition-all duration-700 ease-out ${getHealthColor(equipmentHealthIndex)}`}
+                    className={`transition-all duration-700 ease-out ${
+                      equipmentHealthIndex !== null ? getHealthColor(equipmentHealthIndex) : "stroke-slate-200 text-slate-400"
+                    }`}
                     strokeWidth="3.5"
-                    strokeDasharray={`${equipmentHealthIndex}, 100`}
+                    strokeDasharray={`${equipmentHealthIndex !== null ? equipmentHealthIndex : 0}, 100`}
                     strokeLinecap="round"
                     fill="none"
                     d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
@@ -401,7 +432,7 @@ export default function DashboardPage() {
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
                   <span className="text-xl font-bold font-mono tracking-tight text-slate-900">
-                    {equipmentHealthIndex.toFixed(0)}%
+                    {equipmentHealthIndex !== null ? `${equipmentHealthIndex.toFixed(0)}%` : "--"}
                   </span>
                   <span className="text-[9px] uppercase tracking-wider font-semibold text-slate-400">EHI</span>
                 </div>
@@ -411,10 +442,12 @@ export default function DashboardPage() {
               <div className="space-y-1">
                 <div className="flex items-center space-x-2.5">
                   <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                    {selectedMachineId}
+                    {hasDataLoaded ? selectedMachineId : "STANDBY"}
                   </span>
                   <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
-                    {selectedMachineId === "PUMP-01"
+                    {!hasDataLoaded
+                      ? "Machine Asset Monitoring (Standby)"
+                      : selectedMachineId === "PUMP-01"
                       ? "Centrifugal Slurry Booster Pump P-101"
                       : "DMG Mori 5-Axis Electro-Spindle SP-300"}
                   </h1>
@@ -425,7 +458,9 @@ export default function DashboardPage() {
                     <span className="font-semibold text-slate-900">State:</span>
                     <span
                       className={`font-semibold px-2 py-0.5 rounded text-xs ${
-                        operationalState === "Nominal"
+                        !hasDataLoaded
+                          ? "bg-slate-100 text-slate-600 border border-slate-200"
+                          : operationalState === "Nominal"
                           ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                           : operationalState === "Degraded"
                           ? "bg-amber-50 text-amber-700 border border-amber-200"
@@ -459,8 +494,10 @@ export default function DashboardPage() {
             {/* Emergency / Safety Tag & Export Work Order Trigger */}
             <div className="flex flex-col sm:flex-row lg:flex-col items-start lg:items-end justify-between border-t lg:border-t-0 lg:border-l border-slate-100 pt-3 lg:pt-0 lg:pl-6 text-xs gap-3 shrink-0">
               <button
+                disabled={!hasDataLoaded}
                 onClick={() => setIsTicketModalOpen(true)}
-                className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-semibold shadow-sm transition-all active:scale-95"
+                className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-semibold shadow-sm transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                title={!hasDataLoaded ? "Upload telemetry data to export work order" : "Export Maintenance Ticket"}
               >
                 <FileText className="w-4 h-4 text-amber-400" />
                 <span>Export Work Order</span>
@@ -488,67 +525,137 @@ export default function DashboardPage() {
             </span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* 1. Vibration Severity Gauge (Calibrated against ISO 10816-3) */}
-            <VibrationGauge value={currentVibration} maxScale={12.0} />
+          {!hasDataLoaded ? (
+            <div className="industrial-card p-8 border-2 border-dashed border-slate-200 bg-slate-50/60 flex flex-col items-center justify-center text-center">
+              <div className="w-12 h-12 rounded-full bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-700 mb-3 shadow-sm">
+                <Upload className="w-6 h-6" />
+              </div>
+              <h3 className="font-bold text-slate-800 text-sm">
+                Standby Mode / Awaiting Sensor Telemetry
+              </h3>
+              <p className="text-xs text-slate-500 mt-1 max-w-md">
+                Upload a plant sensor CSV to begin automated telemetry analysis
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* 1. Vibration Severity Gauge (Calibrated against ISO 10816-3) */}
+              <VibrationGauge value={currentVibration ?? 0} maxScale={12.0} />
 
-            {/* 2. Bearing Thermal Monitor (Color shifts approaching/exceeding 80°C) */}
-            <ThermalGauge value={currentBearingTemp} threshold={80.0} maxScale={120.0} />
+              {/* 2. Bearing Thermal Monitor (Color shifts approaching/exceeding 80°C) */}
+              <ThermalGauge value={currentBearingTemp ?? 0} threshold={80.0} maxScale={120.0} />
 
-            {/* 3. Acoustic Sensor Monitor (Decibel surges & ultrasonic cavitation) */}
-            <AcousticGauge value={currentAcousticDb} cavitationThreshold={85.0} maxScale={110.0} />
-          </div>
+              {/* 3. Acoustic Sensor Monitor (Decibel surges & ultrasonic cavitation) */}
+              <AcousticGauge value={currentAcousticDb ?? 0} cavitationThreshold={85.0} maxScale={110.0} />
+            </div>
+          )}
         </section>
 
         {/* 6. Metric Cards Row */}
         <section className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <MetricCard
             label="Vibration RMS"
-            value={Number(currentVibration.toFixed(2))}
+            value={hasDataLoaded && currentVibration !== null ? Number(currentVibration.toFixed(2)) : "--"}
             unit="mm/s"
             subtext="ISO 10816 velocity"
-            badge={currentVibration >= 7.1 ? "Zone D (Trip)" : currentVibration >= 2.8 ? "Zone C (Alert)" : "Zone A/B"}
-            status={currentVibration >= 7.1 ? "critical" : currentVibration >= 2.8 ? "warning" : "nominal"}
+            badge={
+              !hasDataLoaded
+                ? "Standby"
+                : (currentVibration ?? 0) >= 7.1
+                ? "Zone D (Trip)"
+                : (currentVibration ?? 0) >= 2.8
+                ? "Zone C (Alert)"
+                : "Zone A/B"
+            }
+            status={
+              !hasDataLoaded
+                ? "nominal"
+                : (currentVibration ?? 0) >= 7.1
+                ? "critical"
+                : (currentVibration ?? 0) >= 2.8
+                ? "warning"
+                : "nominal"
+            }
             iconName="gauge"
           />
 
           <MetricCard
             label="Bearing Housing"
-            value={Number(currentBearingTemp.toFixed(1))}
+            value={hasDataLoaded && currentBearingTemp !== null ? Number(currentBearingTemp.toFixed(1)) : "--"}
             unit="°C"
             subtext="80°C threshold limit"
-            badge={currentBearingTemp >= 95 ? "Critical Trip" : currentBearingTemp >= 80 ? "Warning (>80°C)" : "Normal"}
-            status={currentBearingTemp >= 95 ? "critical" : currentBearingTemp >= 80 ? "warning" : "nominal"}
+            badge={
+              !hasDataLoaded
+                ? "Standby"
+                : (currentBearingTemp ?? 0) >= 95
+                ? "Critical Trip"
+                : (currentBearingTemp ?? 0) >= 80
+                ? "Warning (>80°C)"
+                : "Normal"
+            }
+            status={
+              !hasDataLoaded
+                ? "nominal"
+                : (currentBearingTemp ?? 0) >= 95
+                ? "critical"
+                : (currentBearingTemp ?? 0) >= 80
+                ? "warning"
+                : "nominal"
+            }
             iconName="flame"
           />
 
           <MetricCard
             label="Rotational Speed"
-            value={Math.round(currentRpm)}
+            value={hasDataLoaded && currentRpm !== null ? Math.round(currentRpm) : "--"}
             unit="RPM"
             subtext={selectedMachineId.includes("CNC") ? "Max 24,000 RPM" : "Nominal 1,750 RPM"}
-            badge="Locked"
-            status="active"
+            badge={hasDataLoaded ? "Locked" : "Standby"}
+            status={hasDataLoaded ? "active" : "nominal"}
             iconName="rpm"
           />
 
           <MetricCard
             label="Current Draw"
-            value={Number(currentAmps.toFixed(1))}
+            value={hasDataLoaded && currentAmps !== null ? Number(currentAmps.toFixed(1)) : "--"}
             unit="Amps"
             subtext="FLA overload trip @ 125%"
-            badge={currentAmps > 18.5 && selectedMachineId.includes("CNC") ? "Overload" : "In Envelope"}
-            status={currentAmps > 18.5 && selectedMachineId.includes("CNC") ? "warning" : "nominal"}
+            badge={
+              !hasDataLoaded
+                ? "Standby"
+                : (currentAmps ?? 0) > 18.5 && selectedMachineId.includes("CNC")
+                ? "Overload"
+                : "In Envelope"
+            }
+            status={
+              !hasDataLoaded
+                ? "nominal"
+                : (currentAmps ?? 0) > 18.5 && selectedMachineId.includes("CNC")
+                ? "warning"
+                : "nominal"
+            }
             iconName="zap"
           />
 
           <MetricCard
             label="Acoustic Intensity"
-            value={Number(currentAcousticDb.toFixed(1))}
+            value={hasDataLoaded && currentAcousticDb !== null ? Number(currentAcousticDb.toFixed(1)) : "--"}
             unit="dB"
             subtext="Cavitation pinging alarm"
-            badge={currentAcousticDb > 85 ? "Cavitation Alert" : "Normal"}
-            status={currentAcousticDb > 85 ? "critical" : "nominal"}
+            badge={
+              !hasDataLoaded
+                ? "Standby"
+                : (currentAcousticDb ?? 0) > 85
+                ? "Cavitation Alert"
+                : "Normal"
+            }
+            status={
+              !hasDataLoaded
+                ? "nominal"
+                : (currentAcousticDb ?? 0) > 85
+                ? "critical"
+                : "nominal"
+            }
             iconName="volume"
           />
         </section>
@@ -587,12 +694,15 @@ export default function DashboardPage() {
             <DiagnosticChat
               apiBaseUrl={API_BASE_URL}
               machineId={selectedMachineId}
+              diagnosedFault={diagnosedFault}
               currentAnomalySummary={{
-                vibration_rms_mms: currentVibration,
-                bearing_temperature_c: currentBearingTemp,
+                vibration_rms_mms: currentVibration ?? 0,
+                bearing_temperature_c: currentBearingTemp ?? 0,
                 iso_10816_zone: isoZone,
-                acoustic_db: currentAcousticDb,
+                acoustic_db: currentAcousticDb ?? 0,
                 primary_contributor: sensorContributions[0]?.sensor_channel || "vibration_rms_mms",
+                diagnosed_component: diagnosedFault?.diagnosed_component,
+                is_anomaly: operationalState !== "Nominal" && hasDataLoaded,
               }}
             />
           </div>
@@ -606,11 +716,11 @@ export default function DashboardPage() {
         machineId={selectedMachineId}
         operationalState={operationalState}
         sensorSnapshot={{
-          vibration_rms_mms: currentVibration,
-          bearing_temperature_c: currentBearingTemp,
-          rotational_speed_rpm: currentRpm,
-          current_draw_amps: currentAmps,
-          acoustic_db: currentAcousticDb,
+          vibration_rms_mms: currentVibration ?? 0,
+          bearing_temperature_c: currentBearingTemp ?? 0,
+          rotational_speed_rpm: currentRpm ?? 0,
+          current_draw_amps: currentAmps ?? 0,
+          acoustic_db: currentAcousticDb ?? 0,
         }}
         alerts={stream.alerts}
         timestamp={stream.latestFrame?.timestamp}
@@ -622,7 +732,7 @@ export default function DashboardPage() {
       {/* Footer */}
       <footer className="border-t border-slate-200 bg-white py-6 mt-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2">
-          <span>FactoryPilot &copy; {new Date().getFullYear()} &mdash; Production Industrial Diagnostics & Vector RAG Architecture</span>
+          <span suppressHydrationWarning>FactoryPilot &copy; {new Date().getFullYear()} &mdash; Production Industrial Diagnostics & Vector RAG Architecture</span>
           <div className="flex items-center space-x-4">
             <span>ISO 10816-3 Evaluator</span>
             <span>&bull;</span>

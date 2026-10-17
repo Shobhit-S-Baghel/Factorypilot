@@ -52,6 +52,9 @@ class TroubleshootResponse(BaseModel):
     recommended_corrective_actions: List[CorrectiveAction]
     retrieved_manual_citations: List[Dict[str, Any]]
     confidence_score: float = Field(..., ge=0.0, le=1.0)
+    diagnosed_component: str = Field(default="General Mechanical Assembly", description="Exact pinpointed faulty sub-component")
+    failure_mechanism: Optional[str] = Field(default=None, description="Primary failure mode")
+    recommended_mitigation: Optional[str] = Field(default=None, description="Recommended corrective action")
 
 
 class MaintenanceTicketExportRequest(BaseModel):
