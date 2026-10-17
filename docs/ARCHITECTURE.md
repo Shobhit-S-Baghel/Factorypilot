@@ -1,172 +1,219 @@
-# FactoryPilot: Complete Technical Architecture & Data Lifecycle Specification
+# FactoryPilot: Complete System Architecture & 5-Agent Pipeline Specification
 
-> **FactoryPilot** is a production-grade industrial telemetry ingestion engine, machine learning anomaly detection system, and technical manual vector Retrieval-Augmented Generation (RAG) copilot designed for critical manufacturing assets (centrifugal pumps, CNC electro-spindles, turbomachinery).
+> **FactoryPilot** is a production-grade predictive maintenance platform and vector Retrieval-Augmented Generation (RAG) assistant designed for mission-critical manufacturing assets. It transforms raw industrial sensor telemetry into pinpointed mechanical component diagnoses, OSHA-compliant safety procedures, and authorized maintenance work orders.
 
 ---
 
-## 1. End-to-End Data Lifecycle
+## 1. End-to-End Data Flow Pipeline
 
+The end-to-end data lifecycle moves seamlessly from physical machine sensors to the floor technician's screen through five specialized AI engines and agents:
+
+### 1.1 ASCII Data Pipeline Diagram
 ```
-[ Industrial Machinery ]
-          │
-          ▼ (Sensor Acquisition: Triaxial Accel, Pt100 RTD, Hall Effect, Ultrasonic Mic)
-[ Ingestion Pipeline ] ──► Schema Validation & Monotonic Time Ordering
-          │
-          ▼
-[ Rolling Feature Extraction ] ──► 5-Min Rolling Windows (RMS, Crest Factor, dT/dt, Kurtosis)
-          │
-          ▼
-[ ML Anomaly Engine ] ──► Isolation Forest + Dynamic Z-Score Attribution + ISO 10816-3 Zoning
-          │
-          ├───► Equipment Health Index (EHI 0-100%) & Operational State (Nominal/Degraded/Critical)
-          │
-          ▼
-[ ChromaDB Vector RAG ] ──► Semantic SOP & Manual Retrieval, OSHA 1910.147 LOTO Verification
-          │
-          ▼
-[ Next.js Presentation ] ──► Live WebSocket Ring Buffer, Condition Gauges, Work Order Dispatch
+┌─────────────────┐      ┌─────────────────────────┐      ┌─────────────────────────┐
+│     Raw CSV     │ ───► │   Feature Extraction    │ ───► │   ML Anomaly Scoring    │
+│ Plant Telemetry │      │ (RMS, Crest, Temp Rate) │      │ (Isolation Forest + ISO)│
+└─────────────────┘      └─────────────────────────┘      └────────────┬────────────┘
+                                                                       │
+┌─────────────────┐      ┌─────────────────────────┐                   ▼
+│  Technician UI  │ ◄─── │  Vector Manual Search   │ ◄─── ┌─────────────────────────┐
+│ Next.js Platform│      │ (ChromaDB Plant Manuals)│      │  Sub-Component Mapping  │
+│(Dashboard/Chat) │      │  OSHA 1910.147 LOTO     │      │(Pinpoint Faulty Part)   │
+└─────────────────┘      └─────────────────────────┘      └─────────────────────────┘
 ```
 
----
+### 1.2 Mermaid Architecture Flowchart
+```mermaid
+flowchart TD
+    A["Raw Plant Telemetry CSV<br/>(Vibration, Temp, RPM, Amps, Acoustic)"] --> B["1. Data Ingestion & Sanitization Engine<br/>(Schema validation, timestamp monotonicity, dropout fill)"]
+    B --> C["Rolling Feature Extraction<br/>(5-min windows: RMS velocity, Crest Factor, dT/dt)"]
+    C --> D["2. Anomaly Detection Engine<br/>(Unsupervised Isolation Forest + ISO 10816-3 Thresholding)"]
+    D --> E["3. Fault Localization Agent<br/>(Cross-correlates multi-sensor channels to pinpoint broken part)"]
+    E --> F["4. Manual Retrieval Agent<br/>(ChromaDB semantic search over OEM machine manuals)"]
+    F --> G["5. Diagnostic Advisor Copilot<br/>(Synthesizes LOTO advisory, checklist, & repair steps)"]
+    G --> H["4-Page Next.js Web Platform<br/>(Landing, Telemetry Sandbox, Copilot, Architecture)"]
+    H --> I["Field Work Order (.MD)<br/>(Downloadable OSHA 1910.147 certified ticket)"]
 
-## 2. Comprehensive Data Lifecycle Phases
-
-### Phase 1: Ingestion Pipeline
-FactoryPilot supports dual ingestion pathways:
-1. **Batch CSV Ingestion (`POST /api/v1/telemetry/upload`)**:
-   - Ingests multipart CSV time-series captures.
-   - Enforces required industrial channels:
-     - `timestamp` (ISO 8601 UTC string or epoch nanoseconds)
-     - `machine_id` (Asset tag, e.g. `PUMP-01`, `CNC-SPINDLE-01`)
-     - `rotational_speed_rpm` (Shaft rotational velocity)
-     - `vibration_rms_mms` (Velocity severity in $mm/s$)
-     - `bearing_temperature_c` (Bearing housing RTD sensor in $^\circ C$)
-     - `current_draw_amps` (Motor phase current draw in Amperes)
-     - `acoustic_db` (Ultrasonic acoustic emission intensity in $dB$)
-   - Validates strict monotonic timestamp progression and performs forward-fill interpolation for intermittent sensor dropouts.
-
-2. **Real-Time WebSocket Streaming (`ws://localhost:8000/api/v1/telemetry/ws/stream`)**:
-   - High-frequency full-duplex WebSocket channel operating at configurable speeds (1x = 250ms, 2x = 125ms, 5x = 50ms interval).
-   - Serves deterministic synthetic failure generators (`centrifugal_pump_cavitation`, `cnc_spindle_bearing_wear`, `thermal_overload_baseline`).
-   - Supports bi-directional control frames (`start`, `pause`, `resume`, `seek`, `stop`, `ping`).
-
----
-
-### Phase 2: Rolling Feature Extraction
-Raw high-frequency telemetry is aggregated across rolling 5-minute statistical observation windows:
-- **Root-Mean-Square (RMS) Velocity ($v_{\text{rms}}$)**:
-  $$v_{\text{rms}} = \sqrt{\frac{1}{N} \sum_{i=1}^N v_i^2}$$
-  Calibrated over $10\text{ Hz} - 1,000\text{ Hz}$ per ISO 10816-3.
-- **Crest Factor ($CF$)**:
-  $$\text{CF} = \frac{|v_{\text{peak}}|}{v_{\text{rms}}}$$
-  Quantifies impulsive shock pulses indicative of early spalling on bearing raceways.
-- **Thermal Rate of Change ($\frac{dT}{dt}$)**:
-  Measures rate of heat buildup to differentiate transient ambient swings from active lubricant film breakdown.
-- **Ultrasonic Cavitation Index**:
-  Tracks energy surges above $85.0\text{ dB}$ in the $18\text{ kHz} - 35\text{ kHz}$ acoustic spectrum caused by imploding vapor cavity micro-jets.
+    style A fill:#f8fafc,stroke:#94a3b8,stroke-width:2px;
+    style B fill:#eff6ff,stroke:#3b82f6,stroke-width:2px;
+    style C fill:#f0fdf4,stroke:#22c55e,stroke-width:2px;
+    style D fill:#fef3c7,stroke:#f59e0b,stroke-width:2px;
+    style E fill:#fee2e2,stroke:#ef4444,stroke-width:2px;
+    style F fill:#f5f3ff,stroke:#8b5cf6,stroke-width:2px;
+    style G fill:#f0fdfa,stroke:#0d9488,stroke-width:2px;
+    style H fill:#1e293b,stroke:#0f172a,stroke-width:2px,color:#ffffff;
+    style I fill:#334155,stroke:#0f172a,stroke-width:2px,color:#ffffff;
+```
 
 ---
 
-### Phase 3: Machine Learning Anomaly Detection & Attribution
-1. **Unsupervised Isolation Forest Engine**:
-   - Evaluates multi-dimensional sensor trajectories without requiring pre-labeled training data.
-   - Produces an anomaly score normalized between $0.00$ and $1.00$.
-2. **Dynamic Sensor Attribution (Z-Score Attribution)**:
-   - Computes deviation from nominal rolling baselines:
-     $$Z_j = \frac{x_j - \mu_j}{\sigma_j}$$
-   - Ranks the primary offending sensor channel driving anomalous behavior (e.g. `vibration_rms_mms: 58%`, `acoustic_db: 24%`).
-3. **ISO 10816-3 Standard Vibration Zones**:
-   - **Zone A/B (Nominal)**: $< 2.80\text{ mm/s}$ — Unrestricted continuous operation.
-   - **Zone C (Warning / Alert)**: $2.80 - 7.10\text{ mm/s}$ — Restricted long-term operation; maintenance scheduled.
-   - **Zone D (Critical Danger / Trip)**: $> 7.10\text{ mm/s}$ — Severe risk of catastrophic fatigue; immediate shutdown required.
-4. **Equipment Health Index (EHI)**:
-   - Composite metric scaled from $0\%$ (imminent failure) to $100\%$ (factory nominal).
+## 2. The 5 Specialized Agents & Engines (Plain-Language Roles)
+
+FactoryPilot breaks down complex industrial predictive maintenance into five dedicated, modular engines. Below is what each engine does in plain, accessible terms alongside its technical mechanisms:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          THE 5 AGENTS OF FACTORYPILOT                       │
+├──────────────────────────┬──────────────────────────────────────────────────┤
+│ 1. Ingestion Engine      │ Validates data, timestamps, and calculates stats │
+├──────────────────────────┼──────────────────────────────────────────────────┤
+│ 2. Anomaly Engine        │ Flags abnormal behavior against ISO boundaries   │
+├──────────────────────────┼──────────────────────────────────────────────────┤
+│ 3. Fault Localization    │ Pinpoints the exact broken machine sub-component │
+├──────────────────────────┼──────────────────────────────────────────────────┤
+│ 4. Manual Retrieval      │ Finds relevant repair guides in vector database  │
+├──────────────────────────┼──────────────────────────────────────────────────┤
+│ 5. Diagnostic Copilot    │ Generates safety steps, checklists, & work orders│
+└──────────────────────────┴──────────────────────────────────────────────────┘
+```
+
+### 1. Data Ingestion & Sanitization Engine
+* **Plain-Language Summary:** The gatekeeper of factory data. It reads incoming plant CSV files or live sensor streams, verifies that the numbers make physical sense, ensures clock timestamps are in chronological order, and calculates essential rolling statistical metrics like vibration intensity and impact spikes.
+* **Core Responsibilities:**
+  - Validates required industrial channels: `timestamp`, `machine_id`, `rotational_speed_rpm`, `vibration_rms_mms`, `bearing_temperature_c`, `current_draw_amps`, and `acoustic_db`.
+  - Enforces monotonic time ordering and applies forward-fill interpolation for intermittent sensor dropouts.
+  - Extracts 5-minute rolling window features:
+    - **Vibration RMS Velocity ($v_{\text{rms}}$):** Energy measure of continuous machine shaking.
+    - **Crest Factor ($CF$):** Ratio of peak impact shock to RMS; reveals early metal flaking.
+    - **Thermal Rate of Change ($\frac{dT}{dt}$):** Distinguishes normal room warming from acute friction.
+* **Output:** Cleaned, structured feature dataframe ready for machine learning inference.
 
 ---
 
-### Phase 4: ChromaDB Technical Manual Vector RAG Copilot
-1. **Document Ingestion & Chunking**:
-   - Indexes plant operating manuals (`docs/manuals/centrifugal_pump_manual.md`, `docs/manuals/cnc_milling_spindle_manual.md`).
-   - Parses markdown by structural headers (`## 1. Safety`, `## 2. Tolerances`, `## 6. LOTO`), preserving chapter context and table formatting.
-2. **Vector Embeddings & Semantic Retrieval**:
-   - Embeds technical manual chapters into a persistent ChromaDB vector collection (`factorypilot_manuals`).
-   - Includes graceful in-memory TF-IDF cosine similarity fallback to ensure 100% test and deployment reliability without external services.
-3. **OSHA 29 CFR 1910.147 LOTO Protocol Verification**:
-   - Enforces mandatory 6-step zero-energy isolation validation (MCC breaker lockout, double block & bleed, casing depressurization, CAT-IV multimeter verification) whenever critical faults are diagnosed.
+### 2. Anomaly Detection Engine (Isolation Forest & ISO 10816 Thresholding)
+* **Plain-Language Summary:** The early-warning radar. It looks across all sensor channels simultaneously to see if the machine is behaving normally or if it has drifted into an abnormal, degraded state. It classifies machine health into standard international vibration zones and gives the asset a simple 0–100% health grade.
+* **Core Responsibilities:**
+  - **Unsupervised Isolation Forest:** Evaluates multi-dimensional sensor trajectories without needing prior failure labels, producing an anomaly score between $0.00$ and $1.00$.
+  - **ISO 10816-3 Vibration Severity Classification:**
+    - **Zone A/B (Nominal):** $< 2.80\text{ mm/s}$ — Machine runs smoothly; unrestricted operation.
+    - **Zone C (Warning / Alert):** $2.80 - 7.10\text{ mm/s}$ — Deterioration detected; maintenance required.
+    - **Zone D (Critical Danger / Trip):** $> 7.10\text{ mm/s}$ — Immediate emergency stop to prevent destruction.
+  - **Equipment Health Index (EHI):** Single composite score from $0\%$ (imminent failure) to $100\%$ (factory new).
+* **Output:** Anomaly status, risk percentage, ISO zone label, and anomaly timeline.
 
 ---
 
-### Phase 5: Next.js Presentation & Field Dispatch Layer
-1. **Live Circular Ring Buffer**:
-   - Frontend maintains a fixed 60-point circular ring buffer in `useTelemetryStream.ts` for continuous smooth charting.
-   - Disables chart animation re-triggering (`isAnimationActive={false}`) to guarantee zero frame drops on standard laptop screens.
-2. **Plant Floor Status Gauges**:
-   - **Vibration Severity Meter**: Semi-circular dial with ISO 10816-3 color bands.
-   - **Bearing Thermal Monitor**: Radial and linear progress with dynamic color shifts as temperatures approach and exceed the $80^\circ\text{C}$ threshold.
-   - **Acoustic Sensor Monitor**: 12-segment VU meter with peak surge indicators for cavitation detection ($>85\text{ dB}$).
-3. **Emergency Alert Ribbon**:
-   - Flashes with visual and audible pulses when status hits `Critical`.
-   - Displays primary offending sensor and an immediate "LOTO Protocol Advised" badge.
-4. **Maintenance Work Order Export Modal**:
-   - Compiles live telemetry snapshots, technician checklists, and manual citations into an authorized field work order.
-   - Dispatches downloadable Markdown (`.md`) tickets via `POST /api/v1/diagnostics/export-ticket`.
+### 3. Fault Localization Agent
+* **Plain-Language Summary:** The mechanical detective. Detecting that a machine is "unhappy" is not enough—a maintenance crew needs to know which specific part is broken. This agent correlates patterns across multiple sensors (like high noise paired with shaking, or high heat paired with electrical surge) to pinpoint the exact failing sub-component.
+* **Core Correlation Rules:**
+  1. **High Vibration RMS ($>4.5\text{ mm/s}$) + Acoustic Surge ($>85\text{ dB}$):**
+     $\to$ Pinpoints **"Centrifugal Pump Impeller"** (Cavitation erosion) or **"Bearing Outer Race Spalling"**.
+  2. **Elevated Bearing Temperature ($>80^\circ\text{C}$) + High Vibration ($>2.8\text{ mm/s}$):**
+     $\to$ Pinpoints **"Deep Groove Ball Bearing 6205 / Bearing Journal"** (Lubricant breakdown).
+  3. **High Current Draw ($>120\%\text{ FLA}$) + High Temperature ($>80^\circ\text{C}$) without High Vibration:**
+     $\to$ Pinpoints **"Electric Motor Stator Winding Overload"** (Electrical drag / cooling failure).
+  4. **Elevated Crest Factor ($>4.0$) + High RPM ($>15,000\text{ RPM}$):**
+     $\to$ Pinpoints **"Spindle Shaft Misalignment / Tool Clamp Runout"** (Unbalance / HSK taper wear).
+* **Output:** `diagnosed_component`, `failure_mechanism`, and initial `recommended_action`.
 
 ---
 
-## 3. End-to-End System Sequence Diagram
+### 4. Manual Retrieval Agent (ChromaDB / Vector Store)
+* **Plain-Language Summary:** The digital library assistant. Industrial plant manuals contain hundreds of pages of engineering tolerances, lubrication intervals, and safety steps. This agent instantly searches through manufacturer documentation using semantic vector search to find the exact manual chapter and paragraph needed for the diagnosed issue.
+* **Core Responsibilities:**
+  - Manages persistent ChromaDB vector collections indexed with Markdown technical manuals (`centrifugal_pump_manual.md`, `cnc_milling_spindle_manual.md`).
+  - Converts technician symptoms and sensor anomalies into vector embeddings to find semantic matches regardless of exact phrasing.
+  - Includes an in-memory TF-IDF cosine similarity fallback to guarantee 100% air-gapped plant operation without external cloud dependencies.
+* **Output:** Highly relevant manual citations with chapter numbers, page excerpts, and relevance confidence scores.
+
+---
+
+### 5. Diagnostic Advisor Copilot
+* **Plain-Language Summary:** The senior chief engineer at your shoulder. It takes the machine data, the pinpointed part, and the retrieved manual citations, and synthesizes them into an easy-to-follow, step-by-step repair guide. It also enforces mandatory OSHA Lockout/Tagout (LOTO) safety checks before any technician touches the machine.
+* **Core Responsibilities:**
+  - Enforces **OSHA 29 CFR 1910.147** zero-energy verification (breaker lockout, fluid bleed, CAT-IV meter test).
+  - Produces an interactive step-by-step field verification checklist.
+  - Generates downloadable, standardized Markdown work orders with single-click export.
+* **Output:** Interactive chat guidance, root-cause probability rankings, verified checklists, and formal work order files.
+
+---
+
+## 3. The 4-Page Frontend Application Architecture
+
+FactoryPilot provides a unified user interface divided into four dedicated pages:
+
+```
+[ FactoryPilot Navbar ]
+   ├── / (Home / Overview)
+   ├── /telemetry (Plant Operations & Sandbox)
+   ├── /copilot (AI Troubleshooting Assistant)
+   └── /architecture (How AI Agents Work)
+```
+
+1. **Page 1: Landing Page (`/`):**
+   - **Headline:** *"Predict Industrial Machine Failures Before Costly Downtime."*
+   - Explains the critical problem: unplanned factory downtime costs $260,000/hour on average, and manual spreadsheet inspection is too slow.
+   - Highlights the solution: real-time multi-channel sensor intelligence, automated ISO 10816 compliance, and instant sub-component localization.
+   - Prominent Call to Action: *"Open Telemetry Sandbox $\to$"* directing users to `/telemetry`.
+
+2. **Page 2: Plant Operations & Telemetry Sandbox (`/telemetry`):**
+   - **Machine Context Cards:** Clear, plain-language summaries of `PUMP-01 (Slurry Booster)` and `CNC-SPINDLE-01 (HSK-A63)`.
+   - **Clean Zero-State:** Starts empty with *"Standby Mode / Awaiting Sensor Telemetry"* until a CSV is uploaded.
+   - **Quick-Load Presets:** 1-click loading for *"PUMP-01 Cavitation Run"* and *"CNC-SPINDLE-01 Bearing Wear"*.
+   - **Synchronized Visuals:** Multi-channel Recharts with shaded anomaly excursion bands, physical condition gauges (vibration dial, thermal gauge, acoustic VU meter), and sensor contribution rankings.
+
+3. **Page 3: AI Diagnostic Copilot (`/copilot`):**
+   - **Prominent Top Diagnostic Card:** High-visibility badge displaying the **Identified Faulty Part/Sub-System** and **Primary Failure Mechanism**.
+   - **Interactive Chat Interface:** Natural language dialogue connected directly to `/api/v1/diagnostics/troubleshoot`.
+   - **OSHA 1910.147 LOTO Advisory:** High-contrast red safety warning.
+   - **Interactive Checklist:** Clickable checkboxes that strike through completed inspection steps.
+   - **Manual Citation Modals:** Clickable chapter tags opening OEM reference excerpts.
+
+4. **Page 4: Architecture & Agent Roles (`/architecture`):**
+   - **5-Agent Role Grid:** Cards explaining the specific duties of the Ingestion Engine, ML Detector, Fault Localizer, Manual Retriever, and Copilot.
+   - **Interactive Data Pipeline Flow:** Step-by-step interactive visual representation of the sensor-to-ticket lifecycle.
+
+---
+
+## 4. End-to-End System Sequence Diagram
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Technician as Plant Technician
-    participant Web as Next.js Dashboard (Port 3000)
+    actor Tech as Plant Technician
+    participant Web as Next.js 4-Page App
     participant API as FastAPI Backend (Port 8000)
-    participant ML as ML Anomaly Engine (IsolationForest)
-    participant RAG as ChromaDB / Vector RAG Service
-    participant Machinery as Plant Machinery / Stream Session
+    participant ML as ML Anomaly Engine
+    participant Loc as Fault Localization Agent
+    participant RAG as ChromaDB / Vector Store
 
-    %% Phase 1: Real-Time Telemetry Stream
-    Note over Web,Machinery: 1. Real-Time Telemetry Streaming & Emulation
-    Web->>API: WebSocket Connect ws://localhost:8000/api/v1/telemetry/ws/stream
-    API-->>Web: Connection Established {"active_scenario": "centrifugal_pump_cavitation"}
-    Web->>API: {"action": "start", "interval_ms": 250}
-    loop Every 250ms (Tick)
-        Machinery->>API: Synthesize Telemetry Frame (Vib, Temp, Acoustic, Amps, RPM)
-        API->>ML: Classify ISO 10816 Zone & Evaluate Thermal Status
-        ML-->>API: Zone C/D, Risk Score, Offending Sensor
-        API-->>Web: Broadcast {"type": "telemetry_tick", "vibration_rms_mms": 5.45, "alerts": [...]}
-        Web->>Web: Update 60-Point Ring Buffer, Condition Gauges & Alert Ribbon
-    end
+    %% Ingestion
+    Note over Tech,API: Phase 1: CSV Upload & Feature Ingestion
+    Tech->>Web: Drag & Drop telemetry CSV onto /telemetry
+    Web->>API: POST /api/v1/telemetry/upload (Multipart CSV)
+    API->>API: Validate schema, timestamps, & extract rolling features
+    API->>ML: Run Isolation Forest & ISO 10816 zoning
+    ML-->>API: Risk score, anomaly timeline, ISO zone
+    API->>Loc: Correlate multi-channel sensor signatures
+    Loc-->>API: Pinpoint broken part & failure mechanism
+    API-->>Web: Return 200 OK (records, analysis, diagnosed_component)
+    Web->>Web: Populate synchronized charts, gauges, & status cards
 
-    %% Phase 2: Diagnostic Query & Vector RAG
-    Note over Technician,RAG: 2. AI Troubleshooting & Vector Manual Retrieval
-    Technician->>Web: Enter query: "Severe vibration and cavitation noise in suction line"
+    %% Copilot
+    Note over Tech,RAG: Phase 2: AI Troubleshooting & Manual Retrieval
+    Tech->>Web: Open /copilot or ask: "How to fix cavitation on PUMP-01?"
     Web->>API: POST /api/v1/diagnostics/troubleshoot (Query + Sensor Snapshot)
-    API->>RAG: Semantic Vector Search (Top-k manual chapters)
-    RAG-->>API: Return Citations (Section 4.3: Cavitation, Section 6: LOTO 1910.147)
-    API->>API: Synthesize Root-Cause Probabilities & Inspection Checklist
-    API-->>Web: 200 OK (Citations, Root Causes, LOTO Advisory, Corrective Actions)
-    Web-->>Technician: Display AI Diagnostic Recommendations & SOP Excerpts
+    API->>RAG: Semantic search over indexed OEM manuals
+    RAG-->>API: Return top-k manual chapters & excerpts
+    API->>API: Synthesize LOTO advisory, checklist, & repair steps
+    API-->>Web: Return TroubleshootResponse
+    Web->>Tech: Display Prominent Pinpointed Part Card, OSHA LOTO, & Citations
 
-    %% Phase 3: Work Order Ticket Generation
-    Note over Technician,API: 3. Maintenance Ticket Generation & Field Dispatch
-    Technician->>Web: Click "Export Work Order"
-    Web->>Web: Open TicketModal (Aggregate live readings, completed checklist items)
-    Technician->>Web: Confirm LOTO required & click "Download Work Order (.MD)"
+    %% Export
+    Note over Tech,API: Phase 3: Work Order Export & Field Dispatch
+    Tech->>Web: Click "Export Work Order"
     Web->>API: POST /api/v1/diagnostics/export-ticket?download=true
-    API->>API: Format Standardized OSHA Work Order Markdown Document
-    API-->>Web: Return Blob attachment (WORK_ORDER_PUMP-01_20261018.md)
-    Web-->>Technician: Trigger Clean Browser File Download
+    API-->>Tech: Download authorized Markdown work order (.md)
 ```
 
 ---
 
-## 4. Subsystem Security & Industrial Compliance
+## 5. Industrial Compliance & Safety Standards
 
 | Standard / Policy | Subsystem | Implementation Details |
 | :--- | :--- | :--- |
-| **OSHA 29 CFR 1910.147** | Safety Isolation | Mandatory 6-step Lockout/Tagout (LOTO) sequence enforcement before machinery casing dismantling. |
-| **ISO 10816-3 (Class II)** | Vibration Severity | Rigidly evaluates RMS velocity thresholds: nominal ($<2.8\text{ mm/s}$), alert ($2.8-7.1\text{ mm/s}$), and trip ($>7.1\text{ mm/s}$). |
-| **DIN 43760 (Pt100)** | Thermal Monitoring | Temperature limits: continuous nominal ($<70^\circ\text{C}$), advisory warning ($80^\circ\text{C}$), emergency trip ($95^\circ\text{C}$). |
-| **Non-Root Containers** | Container Security | Backend executes as UID 10001 (`factorypilot`), Frontend as UID 1001 (`nextjs`). |
-| **Stateless REST + WS** | API Architecture | Modular routers with graceful fallback engines for zero-downtime air-gapped plant operation. |
+| **OSHA 29 CFR 1910.147** | Safety Isolation | Mandatory 6-step Lockout/Tagout (LOTO) sequence enforced before touching machinery. |
+| **ISO 10816-3 (Class II)** | Vibration Severity | RMS velocity thresholds: nominal ($<2.8\text{ mm/s}$), alert ($2.8-7.1\text{ mm/s}$), trip ($>7.1\text{ mm/s}$). |
+| **DIN 43760 (Pt100)** | Thermal Monitoring | RTD temperature thresholds: nominal ($<70^\circ\text{C}$), warning ($80^\circ\text{C}$), emergency shutdown ($95^\circ\text{C}$). |
+| **NEMA MG-1** | Motor Current | Full Load Amperes (FLA) thresholding with thermal overload trip at $120\%\text{ FLA}$. |
+| **Air-Gapped Operation** | Vector RAG | ChromaDB with in-memory TF-IDF cosine fallback for 100% offline, air-gapped plant operation. |
