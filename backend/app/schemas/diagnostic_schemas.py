@@ -41,19 +41,35 @@ class CorrectiveAction(BaseModel):
     manual_reference: str
 
 
+class ManualCitation(BaseModel):
+    document_name: str = Field(..., description="Document name, e.g. centrifugal_pump_manual.md")
+    chapter: str = Field(..., description="Chapter or section title")
+    extracted_safety_recommendations: str = Field(..., description="Extracted safety recommendations and procedures")
+    relevance_score: Optional[float] = Field(default=0.0, description="Vector similarity / relevance score")
+    manual: Optional[str] = Field(default=None, description="Alias for document_name")
+    excerpt: Optional[str] = Field(default=None, description="Excerpt content from manual")
+
+
 class TroubleshootResponse(BaseModel):
     machine_id: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+    diagnosed_component: str = Field(..., description="String naming the broken mechanical part")
+    failure_mode: str = Field(..., description="String describing the physical damage mechanism")
+    severity_level: str = Field(..., description="Nominal | Degraded | Critical")
+    loto_required: bool = Field(..., description="Boolean flag indicating if Lockout/Tagout safety procedure is mandatory")
+    manual_citations: List[ManualCitation] = Field(
+        default_factory=list,
+        description="Array of objects containing document name, chapter, and extracted safety recommendations",
+    )
     safety_and_loto_advisory: str
-    loto_mandatory: bool
+    loto_mandatory: bool = True
     osha_standard_reference: str = "OSHA 29 CFR 1910.147 (The Control of Hazardous Energy)"
     root_cause_probability_ranking: List[RootCauseRanking]
     sequential_field_inspection_steps: List[FieldInspectionStep]
     recommended_corrective_actions: List[CorrectiveAction]
-    retrieved_manual_citations: List[Dict[str, Any]]
-    confidence_score: float = Field(..., ge=0.0, le=1.0)
-    diagnosed_component: str = Field(default="General Mechanical Assembly", description="Exact pinpointed faulty sub-component")
-    failure_mechanism: Optional[str] = Field(default=None, description="Primary failure mode")
+    retrieved_manual_citations: List[Dict[str, Any]] = Field(default_factory=list)
+    confidence_score: float = Field(default=0.92, ge=0.0, le=1.0)
+    failure_mechanism: Optional[str] = Field(default=None, description="Alias for failure_mode")
     recommended_mitigation: Optional[str] = Field(default=None, description="Recommended corrective action")
 
 

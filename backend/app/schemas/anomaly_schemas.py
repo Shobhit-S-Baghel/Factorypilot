@@ -40,5 +40,6 @@ class AnomalyDetectionResponse(BaseModel):
     anomaly_timeline: List[AnomalyPoint]
     executive_summary: str
     diagnosed_component: Optional[str] = Field(default=None, description="Pinpointed failing sub-component")
+    failure_mode: Optional[str] = Field(default=None, description="Underlying physical damage mechanism")
     failure_mechanism: Optional[str] = Field(default=None, description="Underlying physical failure mode")
     recommended_action: Optional[str] = Field(default=None, description="Immediate corrective action recommended")

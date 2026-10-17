@@ -40,16 +40,31 @@ async def test_troubleshoot_endpoint_slurry_pump(client: AsyncClient):
 
     assert data["machine_id"] == "PUMP-01"
     assert data["loto_mandatory"] is True
+    assert data["loto_required"] is True
+    assert data["severity_level"] in ["Nominal", "Degraded", "Critical"]
+    assert data["diagnosed_component"] in [
+        "Impeller Blade Assembly",
+        "Deep Groove Ball Bearing 6205",
+        "Stator Winding Assembly",
+        "High-Speed Spindle Shaft",
+    ]
+    assert data["failure_mode"] in [
+        "Vapor Cavitation Erosion",
+        "Lubricant Starvation & Raceway Fatigue",
+        "Electrical Phase Overload",
+        "Dynamic Unbalance & Misalignment",
+    ]
     assert "OSHA" in data["safety_and_loto_advisory"]
     assert len(data["root_cause_probability_ranking"]) >= 2
     assert len(data["sequential_field_inspection_steps"]) >= 3
 
-    # Verify manual citations
-    assert len(data["retrieved_manual_citations"]) > 0
-    first_citation = data["retrieved_manual_citations"][0]
-    assert "manual" in first_citation
+    # Verify structured manual citations
+    assert len(data["manual_citations"]) > 0
+    first_citation = data["manual_citations"][0]
+    assert "document_name" in first_citation
     assert "chapter" in first_citation
-    assert len(first_citation["excerpt"]) > 0
+    assert "extracted_safety_recommendations" in first_citation
+    assert len(first_citation["extracted_safety_recommendations"]) > 0
 
     # Verify corrective actions
     assert len(data["recommended_corrective_actions"]) >= 1
@@ -72,6 +87,11 @@ async def test_troubleshoot_endpoint_cnc_spindle(client: AsyncClient):
     assert response.status_code == 200
     data = response.json()
     assert data["machine_id"] == "CNC-SPINDLE-01"
+    assert data["diagnosed_component"] != ""
+    assert data["failure_mode"] != ""
+    assert data["severity_level"] in ["Nominal", "Degraded", "Critical"]
+    assert isinstance(data["loto_required"], bool)
+    assert len(data["manual_citations"]) > 0
     assert len(data["root_cause_probability_ranking"]) > 0
     causes = [c["cause"] for c in data["root_cause_probability_ranking"]]
     assert any("Runout" in c or "Current" in c for c in causes)

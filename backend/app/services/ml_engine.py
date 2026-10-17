@@ -275,6 +275,8 @@ class MachineLearningEngine:
         peak_acoustic = float(np.max(df["acoustic_db"].to_numpy())) if "acoustic_db" in df.columns else 0.0
         peak_current = float(np.max(df["current_draw_amps"].to_numpy())) if "current_draw_amps" in df.columns else 0.0
         peak_rpm = float(np.max(df["rotational_speed_rpm"].to_numpy())) if "rotational_speed_rpm" in df.columns else 0.0
+        rpm_series = df["rotational_speed_rpm"].to_numpy() if "rotational_speed_rpm" in df.columns else np.array([0.0])
+        rpm_dev = float(np.std(rpm_series)) if len(rpm_series) > 1 else 0.0
         peak_crest = float(np.max(df["vibration_rms_mms_crest_factor"].to_numpy())) if "vibration_rms_mms_crest_factor" in df.columns else (peak_vibration / max(0.1, float(np.mean(vib_series))))
 
         subcomp_info = self.pinpoint_subcomponent(
@@ -285,6 +287,7 @@ class MachineLearningEngine:
             acoustic_db=peak_acoustic,
             crest_factor=peak_crest,
             rpm=peak_rpm,
+            rpm_deviation=rpm_dev,
         )
 
         # Executive summary narrative
@@ -292,7 +295,7 @@ class MachineLearningEngine:
             f"Asset {machine_id} operating in {overall_state.upper()} state with an Equipment Health Index of {health_index}%. "
             f"Vibration severity evaluated at {iso_zone} (Peak: {peak_vibration:.2f} mm/s). "
             f"Thermal housing status: {thermal_status} (Peak: {peak_temp:.1f}°C). "
-            f"Diagnosed component: '{subcomp_info['diagnosed_component']}' ({subcomp_info['failure_mechanism']}). "
+            f"Diagnosed component: '{subcomp_info['diagnosed_component']}' ({subcomp_info['failure_mode']}). "
             f"Detected {anomalous_count} anomalous frames ({anomaly_percentage}% of timeline) "
             f"predominantly driven by '{top_channel}'."
         )
@@ -312,86 +315,108 @@ class MachineLearningEngine:
             anomaly_timeline=timeline,
             executive_summary=summary,
             diagnosed_component=subcomp_info["diagnosed_component"],
+            failure_mode=subcomp_info["failure_mode"],
             failure_mechanism=subcomp_info["failure_mechanism"],
             recommended_action=subcomp_info["recommended_action"],
         )
 
     def pinpoint_subcomponent(
         self,
-        machine_id: str,
+        machine_id: str = "",
         vibration_rms: float = 0.0,
         bearing_temp: float = 0.0,
         current_amps: float = 0.0,
         acoustic_db: float = 0.0,
         crest_factor: float = 0.0,
         rpm: float = 0.0,
+        rpm_deviation: float = 0.0,
         query: str = "",
     ) -> Dict[str, str]:
-        """Correlate industrial sensor channel signatures to pinpoint the exact failing machine sub-component."""
-        m_upper = machine_id.upper()
-        is_cnc = "CNC" in m_upper or "SPINDLE" in m_upper or rpm > 5000 or "spindle" in query.lower()
+        """Correlate industrial sensor channel signatures using deterministic mechanical rules
 
-        # Rule 1: High Vibration RMS + Acoustic Emission surge
-        if (vibration_rms >= 2.8 and acoustic_db >= 82.0) or ("cavitation" in query.lower() and acoustic_db >= 75.0):
-            if is_cnc:
-                return {
-                    "diagnosed_component": "Ceramic Angular Contact Bearing (Front Cluster)",
-                    "failure_mechanism": "Bearing Outer Race Spalling & Ultrasonic Emission",
-                    "recommended_action": "Execute LOTO, perform cleanroom spindle disassembly, and replace matched ceramic bearing set (P4S).",
-                }
-            return {
-                "diagnosed_component": "Centrifugal Pump Impeller & Suction Eye",
-                "failure_mechanism": "Vapor Cavitation Erosion & Micro-Jet Pitting",
-                "recommended_action": "Throttle discharge valve, backwash suction basket strainer, and inspect impeller vane wear rings.",
-            }
+        to pinpoint the exact failing machine sub-component and physical failure mode.
+        """
+        q_lower = query.lower()
+        m_lower = machine_id.lower()
 
-        # Rule 2: Elevated Bearing Temperature + High Vibration
-        if (bearing_temp >= 75.0 and vibration_rms >= 2.8) or ("bearing" in query.lower() and (bearing_temp >= 70.0 or vibration_rms >= 2.5)):
-            if is_cnc:
-                return {
-                    "diagnosed_component": "HSK-A63 Hybrid Ceramic Bearing Cluster",
-                    "failure_mechanism": "Bearing Journal Friction & Lubricant Breakdown",
-                    "recommended_action": "Lock out main CNC disconnect, verify preload spring tension, and replenish Klüber Isoflex NBU 15 grease.",
-                }
-            return {
-                "diagnosed_component": "Deep Groove Ball Bearing 6205 (Drive-End Journal)",
-                "failure_mechanism": "Bearing Journal Hydrodynamic Film Failure & Lubricant Breakdown",
-                "recommended_action": "Isolate MCC 480V breaker, check grease for moisture emulsification, and purge bearing housing with Mobilith SHC 220.",
-            }
+        # Rule 3: High Current Draw + Thermal Elevation without vibration -> Stator Winding Assembly (Electrical Phase Overload)
+        has_high_current = current_amps >= 18.0 or "current" in q_lower or "overload" in q_lower or "phase" in q_lower or "stator" in q_lower
+        has_thermal_elevation = bearing_temp >= 70.0 or "thermal" in q_lower or "temp" in q_lower or "overheat" in q_lower
+        has_low_vibration = vibration_rms < 2.8 and "vibration" not in q_lower and "vib" not in q_lower
 
-        # Rule 3: High Current Draw + Thermal Elevation without high vibration
-        current_limit = 18.0 if is_cnc else 125.0
-        if (current_amps >= current_limit and bearing_temp >= 70.0 and vibration_rms < 3.5) or ("overload" in query.lower() or "stator" in query.lower()):
+        if has_high_current and has_thermal_elevation and has_low_vibration:
             return {
-                "diagnosed_component": "Electric Motor Stator Winding & Drive Inverter",
-                "failure_mechanism": "Electric Motor Stator Winding Overload & Phase Imbalance",
+                "diagnosed_component": "Stator Winding Assembly",
+                "diagnosed_part": "Stator Winding Assembly",
+                "failure_mode": "Electrical Phase Overload",
+                "failure_mechanism": "Electrical Phase Overload",
                 "recommended_action": "Inspect motor chiller circuit temperature differential (Delta-T <= 3.5°C), measure coil phase resistance, and audit VFD current limits.",
             }
 
-        # Rule 4: Elevated Crest Factor + High RPM
-        if (crest_factor >= 3.0 or vibration_rms >= 4.0) and (rpm >= 1500):
-            if is_cnc:
-                return {
-                    "diagnosed_component": "Spindle Shaft & HSK-A63 Tooling Interface",
-                    "failure_mechanism": "Spindle Shaft Misalignment / High-Speed Dynamic Unbalance",
-                    "recommended_action": "Perform dial test indicator runout test (TIR <= 2 µm at spindle nose), clean taper with precision wiper, and re-balance toolholder.",
-                }
+        # Rule 1: High Vibration RMS + Acoustic Emission surge -> Impeller Blade Assembly (Vapor Cavitation Erosion)
+        has_high_vibration = vibration_rms >= 2.8 or crest_factor >= 3.0 or "vibration" in q_lower or "vib" in q_lower
+        has_acoustic_surge = acoustic_db >= 80.0 or "acoustic" in q_lower or "cavitation" in q_lower or "gravel" in q_lower
+
+        if has_high_vibration and has_acoustic_surge:
             return {
-                "diagnosed_component": "Pump Flexible Shaft Coupling & Drive Hub",
-                "failure_mechanism": "Dynamic Shaft Misalignment & Flexible Element Fatigue",
-                "recommended_action": "Execute laser shaft alignment across flexible coupling, verify soft-foot tolerances (<0.05 mm), and replace elastomeric spider insert.",
+                "diagnosed_component": "Impeller Blade Assembly",
+                "diagnosed_part": "Impeller Blade Assembly",
+                "failure_mode": "Vapor Cavitation Erosion",
+                "failure_mechanism": "Vapor Cavitation Erosion",
+                "recommended_action": "Throttle discharge valve, backwash suction basket strainer, and inspect impeller blade assembly for vapor cavitation erosion pitting.",
             }
 
-        # Default fallback based on machine type
-        if is_cnc:
+        # Rule 2: High Bearing Temp + High Vibration -> Deep Groove Ball Bearing 6205 (Lubricant Starvation & Raceway Fatigue)
+        has_high_bearing_temp = bearing_temp >= 70.0 or "bearing" in q_lower or "temp" in q_lower or "overheat" in q_lower
+
+        if has_high_bearing_temp and has_high_vibration:
             return {
-                "diagnosed_component": "Electro-Spindle Mechanical Assembly",
-                "failure_mechanism": "Operational Stress & Tool Interface Wear",
+                "diagnosed_component": "Deep Groove Ball Bearing 6205",
+                "diagnosed_part": "Deep Groove Ball Bearing 6205",
+                "failure_mode": "Lubricant Starvation & Raceway Fatigue",
+                "failure_mechanism": "Lubricant Starvation & Raceway Fatigue",
+                "recommended_action": "Isolate MCC 480V breaker, check grease for moisture emulsification, and purge bearing housing with Mobilith SHC 220.",
+            }
+
+        # Rule 4: High Vibration + RPM deviations -> High-Speed Spindle Shaft (Dynamic Unbalance & Misalignment)
+        has_rpm_deviations = (
+            rpm_deviation > 50.0
+            or "rpm" in q_lower
+            or "speed" in q_lower
+            or "deviation" in q_lower
+            or "unbalance" in q_lower
+            or "misalignment" in q_lower
+            or "spindle" in q_lower
+            or "chatter" in q_lower
+            or "runout" in q_lower
+            or (("cnc" in m_lower or "spindle" in m_lower) and rpm >= 1500)
+            or rpm >= 1500
+        )
+
+        if has_high_vibration and has_rpm_deviations:
+            return {
+                "diagnosed_component": "High-Speed Spindle Shaft",
+                "diagnosed_part": "High-Speed Spindle Shaft",
+                "failure_mode": "Dynamic Unbalance & Misalignment",
+                "failure_mechanism": "Dynamic Unbalance & Misalignment",
+                "recommended_action": "Perform dial test indicator runout test (TIR <= 2 µm at spindle nose), clean taper with precision wiper, and dynamically balance high-speed spindle shaft.",
+            }
+
+        # Context-aware deterministic fallback
+        if "cnc" in m_lower or "spindle" in m_lower or rpm > 5000:
+            return {
+                "diagnosed_component": "High-Speed Spindle Shaft",
+                "diagnosed_part": "High-Speed Spindle Shaft",
+                "failure_mode": "Dynamic Unbalance & Misalignment",
+                "failure_mechanism": "Dynamic Unbalance & Misalignment",
                 "recommended_action": "Inspect spindle taper runout (<=2 µm) and verify coolant supply pressure (>=20 bar).",
             }
+
         return {
-            "diagnosed_component": "Centrifugal Slurry Booster Assembly",
-            "failure_mechanism": "Hydraulic Turbulence & Nominal Operational Wear",
+            "diagnosed_component": "Impeller Blade Assembly",
+            "diagnosed_part": "Impeller Blade Assembly",
+            "failure_mode": "Vapor Cavitation Erosion",
+            "failure_mechanism": "Vapor Cavitation Erosion",
             "recommended_action": "Review suction head pressure, check seal barrier fluid, and monitor vibration trend.",
         }
 

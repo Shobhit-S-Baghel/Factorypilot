@@ -22,8 +22,8 @@ router = APIRouter()
 async def troubleshoot_machine(request: TroubleshootRequest) -> TroubleshootResponse:
     """Analyze machine anomaly and technician query using vector RAG against plant manuals.
 
-    Returns mandatory safety & LOTO protocols, root-cause probability rankings,
-    sequential field inspection steps with chapter citations, and corrective actions.
+    Returns diagnosed mechanical sub-component, failure mode, severity level (Nominal | Degraded | Critical),
+    mandatory Lockout/Tagout (LOTO) protocols, and manual citations with extracted safety recommendations.
     """
     try:
         response = rag_service.troubleshoot(request)

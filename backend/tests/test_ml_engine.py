@@ -42,3 +42,43 @@ def test_thermal_status_boundaries():
     assert "Nominal" in ml_engine.classify_thermal_status(65.0)
     assert "Warning" in ml_engine.classify_thermal_status(82.0)
     assert "Critical" in ml_engine.classify_thermal_status(96.5)
+
+
+def test_deterministic_subcomponent_fault_mappings():
+    # 1. High Vibration RMS + Acoustic Emission surge -> Impeller Blade Assembly (Vapor Cavitation Erosion)
+    res_cav = ml_engine.pinpoint_subcomponent(
+        machine_id="PUMP-01",
+        vibration_rms=4.2,
+        acoustic_db=86.5,
+    )
+    assert res_cav["diagnosed_component"] == "Impeller Blade Assembly"
+    assert res_cav["failure_mode"] == "Vapor Cavitation Erosion"
+
+    # 2. High Bearing Temp + High Vibration -> Deep Groove Ball Bearing 6205 (Lubricant Starvation & Raceway Fatigue)
+    res_bearing = ml_engine.pinpoint_subcomponent(
+        machine_id="PUMP-01",
+        bearing_temp=84.0,
+        vibration_rms=3.8,
+    )
+    assert res_bearing["diagnosed_component"] == "Deep Groove Ball Bearing 6205"
+    assert res_bearing["failure_mode"] == "Lubricant Starvation & Raceway Fatigue"
+
+    # 3. High Current Draw + Thermal Elevation without vibration -> Stator Winding Assembly (Electrical Phase Overload)
+    res_stator = ml_engine.pinpoint_subcomponent(
+        machine_id="PUMP-01",
+        current_amps=135.0,
+        bearing_temp=82.0,
+        vibration_rms=1.2,
+    )
+    assert res_stator["diagnosed_component"] == "Stator Winding Assembly"
+    assert res_stator["failure_mode"] == "Electrical Phase Overload"
+
+    # 4. High Vibration + RPM deviations -> High-Speed Spindle Shaft (Dynamic Unbalance & Misalignment)
+    res_spindle = ml_engine.pinpoint_subcomponent(
+        machine_id="CNC-SPINDLE-01",
+        vibration_rms=3.5,
+        rpm=18000,
+        rpm_deviation=120.0,
+    )
+    assert res_spindle["diagnosed_component"] == "High-Speed Spindle Shaft"
+    assert res_spindle["failure_mode"] == "Dynamic Unbalance & Misalignment"

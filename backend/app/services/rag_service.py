@@ -11,6 +11,7 @@ from app.schemas.diagnostic_schemas import (
     FieldInspectionStep,
     CorrectiveAction,
     TroubleshootResponse,
+    ManualCitation,
 )
 
 logger = logging.getLogger(__name__)
@@ -206,21 +207,46 @@ class ManualRagService:
 
         # 1. Retrieve relevant manual sections
         top_chunks = self.retrieve(query=f"{query} {anomaly.get('primary_contributor', '')}", top_k=3, machine_filter=machine_id)
-        citations = []
+        manual_citations: List[ManualCitation] = []
+        retrieved_citations: List[Dict[str, Any]] = []
         for chunk, score in top_chunks:
-            citations.append({
-                "manual": chunk.source_manual,
-                "chapter": chunk.chapter_title,
-                "relevance_score": score,
-                "excerpt": chunk.content[:240] + "...",
-            })
+            clean_content = chunk.content.strip().replace("\n", " ")
+            rec_text = clean_content[:280] + ("..." if len(clean_content) > 280 else "")
+            cite_item = ManualCitation(
+                document_name=chunk.source_manual,
+                chapter=chunk.chapter_title,
+                extracted_safety_recommendations=rec_text,
+                relevance_score=score,
+                manual=chunk.source_manual,
+                excerpt=rec_text,
+            )
+            manual_citations.append(cite_item)
+            retrieved_citations.append(cite_item.model_dump())
 
-        # 2. Determine LOTO Mandate & Safety Advisory
-        # LOTO is mandatory whenever there are high thermal alarms (>80°C), Zone D vibration, or internal teardown
+        # 2. Determine Severity Level & LOTO Mandate
+        # Severity Level: Nominal | Degraded | Critical
+        if anomaly.get("overall_state") in ["Nominal", "Degraded", "Critical"]:
+            severity_level = anomaly["overall_state"]
+        else:
+            vib_val = float(anomaly.get("vibration_rms_mms", 0.0) or anomaly.get("vibration_rms", 0.0) or 0.0)
+            temp_val = float(anomaly.get("bearing_temperature_c", 0.0) or anomaly.get("bearing_temp", 0.0) or 0.0)
+            iso_zone = str(anomaly.get("iso_10816_zone", ""))
+            if "Zone D" in iso_zone or vib_val >= 4.5 or temp_val >= 95.0 or "emergency" in query.lower() or "critical" in query.lower():
+                severity_level = "Critical"
+            elif "Zone C" in iso_zone or vib_val >= 2.8 or temp_val >= 75.0 or "warning" in query.lower() or "degraded" in query.lower() or "alarm" in query.lower():
+                severity_level = "Degraded"
+            else:
+                severity_level = "Nominal"
+
         is_pump = "PUMP" in machine_id or "slurry" in query.lower()
         is_high_temp = anomaly.get("bearing_temperature_c", 0) > 80.0 or "temp" in query.lower()
         is_severe_vib = "Zone C" in str(anomaly.get("iso_10816_zone", "")) or "Zone D" in str(anomaly.get("iso_10816_zone", ""))
-        loto_required = is_high_temp or is_severe_vib or any(k in query.lower() for k in ["replace", "bearing", "inspect", "disassemble", "leak", "cavitation"])
+        loto_required = (
+            severity_level in ["Critical", "Degraded"]
+            or is_high_temp
+            or is_severe_vib
+            or any(k in query.lower() for k in ["replace", "bearing", "inspect", "disassemble", "leak", "cavitation", "loto", "hazard", "repair"])
+        )
 
         if is_pump:
             safety_advisory = (
@@ -402,6 +428,7 @@ class ManualRagService:
         amps_val = float(anomaly.get("current_draw_amps", 0.0) or anomaly.get("current_amps", 0.0) or 0.0)
         acoustic_val = float(anomaly.get("acoustic_db", 0.0) or 0.0)
         rpm_val = float(anomaly.get("rotational_speed_rpm", 0.0) or anomaly.get("rpm", 0.0) or 0.0)
+        rpm_dev_val = float(anomaly.get("rpm_deviation", 0.0) or anomaly.get("rpm_dev", 0.0) or 0.0)
         crest_val = float(anomaly.get("crest_factor", 0.0) or 0.0)
 
         subcomp_info = ml_engine.pinpoint_subcomponent(
@@ -412,22 +439,27 @@ class ManualRagService:
             acoustic_db=acoustic_val,
             crest_factor=crest_val,
             rpm=rpm_val,
+            rpm_deviation=rpm_dev_val,
             query=query,
         )
 
         return TroubleshootResponse(
             machine_id=machine_id,
             timestamp=datetime.utcnow(),
+            diagnosed_component=subcomp_info["diagnosed_component"],
+            failure_mode=subcomp_info["failure_mode"],
+            severity_level=severity_level,
+            loto_required=loto_required,
+            manual_citations=manual_citations,
             safety_and_loto_advisory=safety_advisory,
             loto_mandatory=loto_required,
             osha_standard_reference="OSHA 29 CFR 1910.147 (The Control of Hazardous Energy)",
             root_cause_probability_ranking=root_causes,
             sequential_field_inspection_steps=inspection_steps,
             recommended_corrective_actions=corrective_actions,
-            retrieved_manual_citations=citations,
+            retrieved_manual_citations=retrieved_citations,
             confidence_score=0.92,
-            diagnosed_component=subcomp_info["diagnosed_component"],
-            failure_mechanism=subcomp_info["failure_mechanism"],
+            failure_mechanism=subcomp_info["failure_mode"],
             recommended_mitigation=subcomp_info["recommended_action"],
         )
 
