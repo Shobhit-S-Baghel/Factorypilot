@@ -78,7 +78,7 @@ export default function TelemetrySandboxPage() {
   // Check backend health
   const checkHealth = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/health`, { signal: AbortSignal.timeout(2500) });
+      const res = await fetch(`${API_BASE_URL}/api/v1/health`, { signal: AbortSignal.timeout(10000) });
       if (res.ok) setBackendStatus("healthy");
       else setBackendStatus("degraded");
     } catch {
