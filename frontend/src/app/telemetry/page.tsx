@@ -33,7 +33,7 @@ import {
   BrainCircuit,
 } from "lucide-react";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" && window.location.hostname !== "localhost" ? "https://factorypilot.onrender.com" : "http://localhost:8000");
 
 export default function TelemetrySandboxPage() {
   const [selectedMachineId, setSelectedMachineId] = useState<string>("PUMP-01");
